@@ -296,6 +296,9 @@ docker inspect fakenews-comics --format '{{range .Mounts}}{{.Source}} -> {{.Dest
 
 「关于」页会比对前后端版本：不一致说明安装包没完整更新（覆盖安装后记得强制刷新页面）。
 
+Android 客户端是**另一套独立版本**（`versionCode` / `versionName`，在 `app/build.gradle.kts`），
+与 fpk 版本无联动；出包流程见该仓库的 `docs/出包与升级.md`。
+
 ## 阅读进度模型
 
 只有一张表、一部漫画一行（`reading_progress`）：
@@ -310,7 +313,9 @@ docker inspect fakenews-comics --format '{{range .Mounts}}{{.Source}} -> {{.Dest
 - **只记「当前正在读的那一章」**：不做分章已读状态（曾经的 `chapter_progress` 表已移除，
   `schema.sql` 里留了一句 `DROP TABLE` 清理老库）。所以章节列表只显示页数，当前章额外标「在读」
 - 翻开就该记：翻页 / 滚动即写；只看封面和详情不算
-- 文件被替换（mtime 变化）后重扫，该漫画按路径失配处理（级联清理进度）
+- 文件被替换（mtime 变化）只触发**重新解析**，进度保留——ID 是路径哈希，路径没变 ID 就没变
+- **改名或移动漫画目录 = 路径变 = 换 ID**：旧行按「消失」级联清理，进度与收藏失联。
+  想保住进度就别动目录名；万一动了，把目录改回原路径再扫一次即可恢复
 - 「重置进度」清空这一行
 
 ## 已知边界
