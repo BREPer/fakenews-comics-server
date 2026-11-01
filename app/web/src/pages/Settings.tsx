@@ -56,7 +56,8 @@ const majorMinor = (v: string | undefined): string => (v ?? '').split('.').slice
  *   - **阅读偏好 + 外观（10 项）**：按设备存，localStorage 唯一真源（useDevicePrefs）。
  *     同一账号在手机/平板/桌面上可以各用各的，改一个不会影响别的设备。
  *   - **系统设置（自动扫描间隔 / 缓存上限）**：服务端执行，PUT 到服务端。
- * 论证见 docs/2026-10-24-偏好归属论证.md。
+ * 判据：这 10 项的「正确值」由屏幕比例、内存、触控决定，与账号无关——
+ * 一台设备改了不该影响另一台，所以放本机。
  */
 export default function SettingsPage() {
   const { data: settings, isLoading, isError, error, refetch } = useSettings();

@@ -257,8 +257,7 @@ export function useScanWatch(enabled: boolean, idleMs: number | false = 15_000):
 
 /**
  * 服务端设置（L1）：只有服务端会执行的项（自动扫描间隔 / 缓存上限）。
- * 阅读偏好与外观已改为**按设备存**（见 utils/devicePrefs.ts 与
- * docs/2026-10-24-偏好归属论证.md），不再经过这个接口。
+ * 阅读偏好与外观**按设备存**（见 utils/devicePrefs.ts），不再经过这个接口。
  */
 export function useSettings() {
   return useQuery({

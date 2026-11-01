@@ -132,7 +132,7 @@ export default function ReaderPage() {
   const navigate = useNavigate();
   const { data: comic, isLoading, isError, error, refetch } = useComicDetail(comicId);
   // 阅读偏好（翻页模式/方向/画质/适应/预加载/动画/常亮/双指）全部来自本机：
-  // localStorage 是唯一真源，服务端不再保存这些项（见 docs/2026-10-24-偏好归属论证.md）
+  // localStorage 是唯一真源，服务端不保存这些项
   const { prefs } = useDevicePrefs();
   const mode = prefs.readerMode;
 
