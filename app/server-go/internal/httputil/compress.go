@@ -1,6 +1,6 @@
 // 响应编码层：/api 的 JSON 响应做 gzip 压缩 + 弱 ETag 协商缓存。
 //
-// 为什么需要（实测数据，tools/_perf_audit.mjs）：
+// 为什么需要（实测数据，tools/perf_audit.mjs）：
 //   GET /api/comics?pageSize=120 → 58,517B 未压缩，gzip 后 5,711B（-90%）
 //   GET /api/history?limit=100   → 60,294B 未压缩
 // 静态资源一直有预压缩 .gz + immutable，唯独 API 是裸 JSON —— 慢网下首页那一个

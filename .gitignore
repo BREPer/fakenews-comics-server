@@ -17,18 +17,17 @@ app/server-go/bin/
 *.db
 *.db-*
 
-# 测试产物（E2E 截图，单次可达 200M+）
-tools/_shots/
-# UI 留档截图（tools/_ui_shot.mjs 产出，可复跑）
+# 截图产物（tools/*_shot.mjs 与 E2E 现画，可复跑，单次可达 200M+）
 _shots/
-# 安卓性能探针的临时产物（tools/android_perf_*.py 的 --out 与 adb 截图）
-tmp_shot/
+tools/_shots/
 
 # 系统杂项
 .DS_Store
 Thumbs.db
 *.log
 
-# 性能探针产物（可复跑，不入库）
+# 性能探针 JSON（tools/perf_*.mjs --out）
 tools/_perf/
+
+# 本地开发用的漫画目录（dev.sh 的 COMIC_ROOT 缺省值）
 .dev-comics/

@@ -5,7 +5,7 @@
  *  2. 拆分双页：不变形、按高度铺满、左右半页真的分开显示（rtl 先右半）
  *  3. 页码域一致性（拆分/双页的页码分母与滑块上限）与卷轴模式续读定位
  *
- * 前置：后端已启动（带 fixtures）；无需任何 npm 依赖（宽幅图用 tools/_image.mjs 现画）。
+ * 前置：后端已启动（带 fixtures）；无需任何 npm 依赖（宽幅图用 tools/lib/image.mjs 现画）。
  * 用法：node tools/reader_probe.mjs [baseUrl]
  * 说明：会自动建一个临时库放宽幅跨页图，跑完删除，不影响标准 fixtures。
  */

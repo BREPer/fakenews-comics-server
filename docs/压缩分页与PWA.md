@@ -127,7 +127,7 @@ cd app/web && npm run typecheck && npm run build
 node tools/pagination_check.mjs      # 15/15
 node tools/scan_banner_check.mjs     # 6/6（[--theme=dark] 可出深色截图）
 node tools/pwa_check.mjs             # 14/14（必须打生产实例 :13800）
-node tools/contract_check.mjs        # 91 字段 0 漂移
+node tools/contract_check.mjs        # 0 漂移（本轮 91 字段；字段数随契约增长，现值见 tools/README）
 ```
 
 `pagination_check` 与 `scan_banner_check` 默认打 Vite（:5173），也可 `--base=` 指到生产实例。

@@ -87,6 +87,28 @@ cd app/server-go && go test ./internal/... -v
 
 go 不在 PATH 上时：`. ./goenv.sh` 之后用 `$GO` 代替 `go`。版本要求见 `app/server-go/go.mod`。
 
+全部运行期变量集中在 `internal/env/env.go`，括号内是缺省值——**缺省值就是容器/向导的取值**，
+所以本地裸跑 `go run .` 一定要显式覆盖前四个：
+
+| 变量 | 缺省 | 说明 |
+|---|---|---|
+| `APP_PORT` | `3000` | 监听端口（`dev.sh` 用 13800） |
+| `HOST` | `0.0.0.0` | 监听地址 |
+| `COMIC_ROOT` | `/comics` | 漫画根目录 |
+| `DATA_DIR` | `/data` | 数据目录（db 与缓存都在其下） |
+| `DB_FILE` | `$DATA_DIR/db/fakenews-comics.db` | SQLite 文件 |
+| `CACHE_DIR` | `$DATA_DIR/cache` | 缩略图 / 封面缓存 |
+| `WEB_DIST` | `<DATA_DIR>/../web-dist` | 前端产物目录，找不到则关闭 SPA |
+| `LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error` |
+| `TRUSTED_PROXIES` | 仅回环 | 可信反代网段（逗号分隔 CIDR）；放在反代后面必须设 |
+| `THUMB_CACHE_MB` | `2048` | 磁盘缩略图上限（设置页改的值优先） |
+| `IMG_CONCURRENCY` | `2` | 同时解码/光栅化的图像数 |
+| `MAX_DECODE_MP` | `60` | 单图解码像素上限（百万像素，超出回 415） |
+| `MEM_CACHE_MB` | `32` | 缩略图内存层字节上限 |
+| `PDF_RENDER_SCALE` | `2` | PDF 渲染倍率（相对 pt） |
+| `PDF_PAGE_CACHE_MB` | `64` | 单个 PDF 的原图页缓存上限 |
+| `MEMORY_LIMIT_MB` | `0` | Go 软内存上限；0 = 按 cgroup 上限取 55% |
+
 本地联调：`app/web/vite.config.ts` 已将 `/api` 代理到 `http://127.0.0.1:13800`。
 
 **回归套件打的是 HTTP 契约**：
@@ -221,7 +243,7 @@ docker inspect fakenews-comics --format '{{range .Mounts}}{{.Source}} -> {{.Dest
 
 | 位置 | 内容 |
 |---|---|
-| `${TRIM_PKGVAR}/data/db/fakenews-comics.db` | SQLite：库/漫画/章索引、进度、收藏、设置 |
+| `${TRIM_PKGVAR}/data/db/fakenews-comics.db` | SQLite：库/漫画/进度/收藏/设置（章是按需解析的，不入库） |
 | `${TRIM_PKGVAR}/data/cache/thumbs/` | 缩略图 WebP（按宽分档） |
 | `${TRIM_PKGVAR}/data/cache/covers/` | 自动封面（章0页0） |
 | `${TRIM_PKGVAR}/data/cache/covers-custom/` | 自定义封面（长按设封面 / 上传） |
@@ -248,12 +270,15 @@ docker inspect fakenews-comics --format '{{range .Mounts}}{{.Source}} -> {{.Dest
 **数据安全保护**
 
 - 库根目录不可访问时（卷没挂载、网络盘断连），该库**整库跳过**，绝不当作「全部已删除」去清理
-- 只有位于可访问根之下、且确实消失的条目才会被移除，并级联清理它的进度、分章标记与收藏
+- 只有位于可访问根之下、且确实消失的条目才会被移除，并级联清理它的进度与收藏
 - 删除整个库时同样清理全部关联数据
 
-**数据备份**：设置页「数据备份」可把进度、分章已读、收藏、设置导出为 JSON，也可合并导入
+**数据备份**：设置页「数据备份」把进度、收藏、设置导出为 JSON，也可合并导入
 （导入不删除本地数据，只接受本机已存在的漫画——comicId 基于路径哈希，换机器同路径可复用；
-旧时间戳不会覆盖较新的进度，分章百分比取较大值）。
+旧时间戳不会覆盖较新的进度）。
+
+- 导出**不含**设备偏好（阅读偏好/外观存在浏览器 localStorage），也不含缓存
+- 旧版备份里的 `chapterProgress` 字段仍能读入但**会被忽略**（分章已读功能已移除）
 
 卸载时可选保留（默认）或删除；升级前 `cmd/upgrade_init` 自动备份数据库（保留最近 3 份）。
 
@@ -309,9 +334,9 @@ docker inspect fakenews-comics --format '{{range .Mounts}}{{.Source}} -> {{.Dest
 
 | 位置 | 做法 | 效果 |
 |---|---|---|
-| SQLite | `db.prepare()` 语句缓存（256 条 FIFO）+ `synchronous=NORMAL` + `temp_store=MEMORY` + 16MB 页缓存 | 热接口省掉每次的 SQL 编译；扫描期几百次 upsert 不再每次 fsync |
+| SQLite | 语句缓存（256 条 FIFO）+ `synchronous=NORMAL` + `temp_store=MEMORY` + 16MB 页缓存 | 热接口省掉每次的 SQL 编译；扫描期几百次 upsert 不再每次 fsync |
 | 列表接口 | 进度/收藏/库类型**一次 JOIN** 取全（去掉逐行相关子查询），并加 `c.id` 兜底排序 | 分页排序稳定（同 `added_at` 不再跨页重复/漏项） |
-| 名称排序 | `sort=title` 按 **ICU 中文排序**（`Intl.Collator('zh')`）：只取 `id,title` 两列排序后按页回取整行 | SQLite 无 ICU，默认字节序会把「阿飞」排到最后；现在与浏览器 `localeCompare('zh')` 完全一致 |
+| 名称排序 | `sort=title` 按**中文拼音序**（`x/text/collate`，`sources.CompareZH`）：只取 `id,title` 两列排序后按页回取整行 | SQLite 默认字节序会把「阿飞」排到最后；与浏览器 `localeCompare('zh')` 接近但规则不必一致（回归断言只覆盖纯中文标题） |
 | facets | 题材/格式聚合结果整块缓存，扫描收尾、改标签、删库删书时显式失效 | 首页每次进入不再全表扫描 + 逐行 `JSON.parse` |
 | 封面/缩略图 | 同一 key 的并发渲染合并（`withInFlight`），磁盘缓存 + 256 条内存 LRU | 首屏几十张封面并发时，同一本只渲染一次 |
 | 详情章页数 | 逐章数页数受限并发（4）而非串行 | 20 章的漫画不再等 20 轮 IO |
@@ -378,13 +403,21 @@ Go 的 `image` 解码必须整张分配位图（24MP 页 = 96MB），所以峰�
 
 ## 错误码约定
 
-| 状态码 | 含义 |
-|---|---|
-| 400 | 参数缺失/类型不符（body/path 参数） |
-| 404 | 漫画/章节/页不存在，或文件已消失 |
-| 415 | 文件存在但无法解析（坏包、加密、格式不符） |
-| 416 | Range 越界（带 `Content-Range: bytes */total`） |
-| 500 | 未预期错误（响应体仍为 `{code,message}` 信封） |
+HTTP 状态码给代理/通用客户端判断，响应体里的业务码 `code` 给前端区分具体原因。
+两者**不是**机械对应关系，见下表。
+
+| HTTP | 业务码 `code` | 含义 |
+|---|---|---|
+| 400 | `4000` | 参数缺失/类型不符（body/path 参数） |
+| 401 | `4010` | 未登录 / 会话过期（前端收到就广播回登录页） |
+| 403 | `4030` | 跨站请求被拒（Origin 校验未通过） |
+| 404 | `4040` | 漫画/章节/页不存在，或文件已消失；**库路径越界也回 4040** |
+| 415 | `5000` | 文件存在但无法解析（坏包、加密、格式不符） |
+| 416 | `5000` | Range 越界（带 `Content-Range: bytes */total`） |
+| 500 | `5000` | 未预期错误（响应体仍为 `{code,message}` 信封） |
+
+415 / 416 / 500 共用业务码 `5000`（「服务端处理不了」统一兜底）——要区分具体原因看 HTTP 状态码；
+判「未登录」请用 HTTP 401 或 `code === 4010`，别用 4010 之外的状态码硬猜。
 
 其他约定：分页参数非法时**宽容归一**（`page=0` → 1、`pageSize` 超限截断 200）；
 搜索词会剥掉控制字符并转义 LIKE 通配符（搜 `100%` 只匹配字面量）；
@@ -397,7 +430,7 @@ Range 语法非法时按 RFC 7233 **忽略 Range 返回 200**。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/api/comics` | 列表（q/library/status/format/tag/sort/order 分页） |
+| GET | `/api/comics` | 列表。过滤：`q`（搜标题/文件名/作者/简介/标签）、`libraryId`、`format`、`tag`、`status=reading\|unread\|finished`；排序：`sort=addedAt\|lastReadAt\|progress\|title`（缺省 `addedAt`，未知值回落）、`order=asc\|desc`（只认小写 `asc`）；分页：`page`、`pageSize`（1–200，缺省 60） |
 | GET | `/api/comics/facets` | 筛选面（格式/标签/状态计数） |
 | GET | `/api/comics/:id` | 详情 + 章列表（`id` / `index` / `title` / `pageCount` / `sizeBytes`；不含已读状态） |
 | PUT | `/api/comics/:id` | 编辑元数据（编辑后重扫不覆盖） |
@@ -421,7 +454,7 @@ Range 语法非法时按 RFC 7233 **忽略 Range 返回 200**。
 | GET | `/api/cache/stats` | 缓存用量（总量/上限/文件数/分类占用） |
 | POST | `/api/cache/clear` | 清空缩略图与封面缓存 |
 | POST | `/api/cache/evict` | 按当前上限立即淘汰一次 |
-| GET | `/api/backup/export` | 导出阅读数据（进度/分章/收藏/设置 → JSON） |
+| GET | `/api/backup/export` | 导出阅读数据（进度/收藏/设置 → JSON） |
 | POST | `/api/backup/import` | 合并导入阅读数据（只接受本机已有漫画） |
 | GET | `/api/about` | 运行信息（版本 / 构建时间 / Go 版本 / 平台 / 端口 / 运行时长 / 路径 / 数据库大小），设置页「关于」用 |
 | GET | `/api/health` | 存活检查（含 `name`/`version`，可用于确认 NAS 上跑的是哪个版本） |
