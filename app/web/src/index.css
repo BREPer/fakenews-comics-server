@@ -1,0 +1,949 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /*
+   * 主题色阶：ink 950→50 在深色下是「背景→文字」，浅色下整体反相。
+   * 所有 bg-ink-900 / text-ink-100 / ring-ink-800 因此自动跟随主题，无需逐处加 dark: 前缀。
+   * 值为 RGB 三元组（空格分隔），供 Tailwind 的 rgb(var(--x) / <alpha-value>) 使用。
+   */
+  :root {
+    --ink-50: 11 18 32;
+    --ink-100: 17 24 39;
+    --ink-200: 31 41 55;
+    --ink-300: 55 65 81;
+    --ink-400: 75 85 99;
+    --ink-500: 107 114 128;
+    --ink-600: 140 148 162;
+    --ink-700: 203 208 218;
+    --ink-800: 228 232 240;
+    --ink-900: 255 255 255;
+    --ink-950: 245 246 248;
+    /* 浅色下阴影要淡而小，否则白卡片会像"贴了张灰纸" */
+    --shadow-soft: 0 1px 2px rgb(15 23 42 / 0.08), 0 6px 14px -8px rgb(15 23 42 / 0.20);
+    --shadow-lift: 0 12px 28px -10px rgb(15 23 42 / 0.26), 0 4px 10px -4px rgb(15 23 42 / 0.12);
+    --shadow-panel: 0 -8px 40px -12px rgb(15 23 42 / 0.28);
+    /*
+     * 页面底色刻意比卡片（纯白）深一档：浅色主题最容易踩的坑就是「白底 + 白卡片」，
+     * 层次全靠阴影硬撑，看起来一片糊。拉开底色后卡片、侧栏、弹层自然分层。
+     */
+    --app-bg: 233 237 243;
+    /*
+     * 全局层级（z-index）统一在这里定义，组件里用 z-[var(--layer-*)]，不再各写裸数字。
+     * 起因：Sheet / ConfirmDialog 改成 portal 挂到 body 之后，它们和「阅读器全屏层」
+     * 落在同一个（根）层叠上下文里，比较的就是裸数字 —— 阅读器 100 而弹层 50，
+     * 于是章节菜单、阅读设置面板虽然渲染出来了，却整片被阅读器盖住，
+     * 用户感知就是「点了右上角菜单没反应」。这里把顺序固定下来：
+     * 导航 40 < 阅读器 100 < 底部弹层 120 < 确认弹窗 130。
+     */
+    --layer-nav: 40;
+    --layer-reader: 100;
+    --layer-sheet: 120;
+    --layer-modal: 130;
+    /* 轻提示必须在所有层之上：在弹层/确认框里点保存，也要能看到结果 */
+    --layer-toast: 140;
+    /* 卡片描边：深色下用白 6% 提亮边缘，浅色下用黑 8% 勾边 */
+    --card-border: rgb(15 23 42 / 0.09);
+    /*
+     * 高亮色（brand）：默认暖橙，设置里可切蓝 / 灰，见下方 [data-accent] 块。
+     * 所有 bg-brand-500 / text-brand-400 等类名都指向这里，所以换色是全局的。
+     */
+    --brand-50: 255 247 237;
+    --brand-100: 255 237 213;
+    --brand-200: 254 215 170;
+    --brand-300: 253 186 116;
+    --brand-400: 251 146 60;
+    --brand-500: 249 115 22;
+    --brand-600: 234 88 12;
+    --brand-700: 194 65 12;
+    --brand-800: 154 52 18;
+    --brand-900: 124 45 18;
+    /* 实心按钮/选中 chip 的渐变两端单独给：各色相「压白字还能看清」的区间不一样 */
+    --brand-grad-from: 251 146 60;
+    --brand-grad-to: 234 88 12;
+    /*
+     * 「品牌色当文字/小图标用」的那一档 —— **按明暗取不同色阶**，所以单独立一个变量。
+     *
+     * brand-400 是给「深色底上的亮色文字」定的：白底上它只有 2:1（#FB923C on #E9EDF3
+     * 实测 1.93:1），底栏 10px 的标签、章节列表的「当前」标记、排序标签这种小字会糊成
+     * 一片浅橙。深色下反过来只有 400 压得住深底（500/600 发闷）。浅色走 600 档
+     * （#EA580C ≈ 3.3:1），深色仍走 400 档。
+     *
+     * 为什么不是 --brand-400 加个 .dark 覆盖：高亮色有三套（橙/空色/豆沙绿），
+     * 每套都有自己「压得住白底」的那一档，写死具体色阶反而要维护 3×2 份。
+     * 这里只做一次引用间接（var → var），各套 accent 自然跟着自己的 600/400 走：
+     * 橙 #EA580C 3.3:1 ／ 空色 #18668C 6.4:1 ／ 豆沙绿 #3A8B54 4.6:1。
+     *
+     * 与 Android 的 `theme.accentTextColor()` 是同一个决定，别只改一边。
+     * 不要用它做**大面积底色**（按钮、选中 chip）：那是 brand-500/600 的活。
+     */
+    --accent-text: var(--brand-600);
+    /*
+     * 收藏色：胭脂红 #F03F24（用户指定色值，深浅主题统一不改写）。
+     * 固定语义色，不随高亮色变化 —— 收藏是内容状态，不是主题强调。
+     * 白底对比 3.9:1、深底 4.4:1，作为图标均清晰。
+     */
+    --fav-500: 240 63 36;
+    /*
+     * 页面级顶部环境光（详情页那层薄雾）**刻意不参与高亮色系统**。
+     *
+     * 高亮色（brand）是交互语言：按钮、选中态、链接、进度。背景氛围抢用它有两个坏处——
+     * 一是稀释了它的语义（到处都是这个颜色时，"高亮"就不再高亮），二是用户换高亮色的
+     * 动机被削弱（换完全站底色跟着变，反而更混乱）。所以这里只走中性色：
+     *   - --page-glow-1：主光（浅色下是提亮的白，深色下是中性冷灰 ink-500）
+     *   - --page-glow-2：压底的一档（比页面底色略沉，让中间的光有对比才立得住）
+     * 换书、换高亮色都不变，只随明暗主题走。
+     */
+    --page-glow-1: 255 255 255;
+    --page-glow-2: 226 230 238;
+    --page-glow-a: 0.34;
+    --page-glow-b: 0.20;
+    /*
+     * 网点（漫画的印刷网点纸）的色与浓度，同样中性：浅色下比雾深一档的冷灰点，
+     * 深色下白点。浓度取"看得见颗粒、看不出点阵"的量级，再高就从材质变成噪点了。
+     */
+    --page-grain: var(--ink-700);
+    --page-grain-a: 0.1;
+    --edge-light: 255 255 255 / 0.9;
+    /* 与 tailwind.config 里的 transitionTimingFunction 同源，供纯 CSS 动画引用 */
+    --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+    --ease-spring: cubic-bezier(0.34, 1.42, 0.64, 1);
+    color-scheme: light;
+  }
+
+  .dark {
+    --ink-50: 246 247 249;
+    --ink-100: 236 238 242;
+    --ink-200: 213 217 226;
+    --ink-300: 176 184 200;
+    --ink-400: 133 144 168;
+    --ink-500: 102 113 140;
+    --ink-600: 81 90 114;
+    --ink-700: 66 73 92;
+    --ink-800: 57 62 77;
+    --ink-900: 35 39 52;
+    --ink-950: 22 25 35;
+    /* 深色下阴影要更黑、扩散更大，再加一道顶部 1px 内高光当"材质边缘" */
+    --shadow-soft: 0 1px 2px rgb(0 0 0 / 0.4), 0 2px 8px -4px rgb(0 0 0 / 0.5);
+    --shadow-lift: 0 10px 28px -10px rgb(0 0 0 / 0.7), 0 4px 10px -4px rgb(0 0 0 / 0.5);
+    --shadow-panel: 0 -10px 48px -12px rgb(0 0 0 / 0.75);
+    --app-bg: 22 25 35;
+    --card-border: rgb(255 255 255 / 0.07);
+    /* 深色下主光换成中性冷灰（白在这里会过曝成一片死白），网点用亮点 */
+    --page-glow-1: var(--ink-500);
+    --page-glow-2: var(--ink-600);
+    --page-glow-a: 0.24;
+    --page-glow-b: 0.16;
+    --page-grain: 255 255 255;
+    --page-grain-a: 0.07;
+    --edge-light: 255 255 255 / 0.06;
+    /* 深色下「当文字用的品牌色」回到 400 档，见 :root 里的 --accent-text */
+    --accent-text: var(--brand-400);
+    color-scheme: dark;
+  }
+
+  /*
+   * 高亮色选项：空色 / 豆沙绿。默认（琥珀橙）写在 :root，无需 [data-accent]。
+   * 放在 .dark 之后、并提高特异性，保证深色主题下也能覆盖。
+   * 键名与 display 名对齐（sora / bean），旧值 blue / gray / prussian 由前端归一化，见 theme.ts。
+   */
+
+  /*
+   * 空色（そらいろ）：日本传统色，标准色 #A0D8EF（RGB 160 216 239，HSL 197° 71% 78%）。
+   * 来源：和色名辞典 / 伝統色のいろは 一系的通行色值，色彩库里同名 Sora Blue 也是这个值。
+   * 它比普鲁士蓝浅得多——白字在它上面只有 1.55:1，所以标准色只能占 200 档（浅底强调、
+   * 色板、氛围光），主色顺同一色相（H≈197°）往下压到 500/600 才压得住白字：
+   *   500 #267EAA 白字 4.52:1（正文/进度条）
+   *   600 #18668C 白字 6.8:1 （选中态/实心按钮，与琥珀橙、豆沙绿同档位职责）
+   * 400 #3E9CC2 白字 3.1:1，只用于图标与装饰线。
+   */
+  :root[data-accent='sora'] {
+    --brand-50: 242 250 254;
+    --brand-100: 223 243 252;
+    --brand-200: 160 216 239; /* 标准色 #A0D8EF */
+    --brand-300: 122 190 223;
+    --brand-400: 62 156 194;
+    --brand-500: 38 126 170;
+    --brand-600: 24 102 140;
+    --brand-700: 17 81 112;
+    --brand-800: 12 63 88;
+    --brand-900: 9 47 66;
+    --brand-grad-from: 38 126 170;
+    --brand-grad-to: 24 102 140;
+  }
+
+  /*
+   * 豆沙绿：标准色 #C7EDCC（RGB 199 237 204）——它是护眼底色，非常浅，
+   * 只能占 200 档；主色顺着同一色相（H≈128°）往下压到 500/600 才能压白字。
+   */
+  :root[data-accent='bean'] {
+    --brand-50: 244 251 246;
+    --brand-100: 230 246 234;
+    --brand-200: 199 237 204;
+    --brand-300: 163 221 176;
+    --brand-400: 95 175 116;
+    --brand-500: 79 169 106;
+    --brand-600: 58 139 84;
+    --brand-700: 44 111 67;
+    --brand-800: 35 88 56;
+    --brand-900: 27 68 43;
+    --brand-grad-from: 79 169 106;
+    --brand-grad-to: 44 111 67;
+  }
+
+  /* 深色下两个颜色都要提亮：空色标准色本身偏浅，深底上要再亮一档才「发得出来」；
+     豆沙绿太深会显脏。
+     注意 grad-from 没跟 500 一起提亮：实心按钮/选中 chip 上面压的是白字，
+     深底上把底提到 111 190 224 会让白字只剩 2:1，所以渐变仍用 600/700 这两档。 */
+  :root.dark[data-accent='sora'] {
+    --brand-200: 205 238 250;
+    --brand-300: 178 226 244;
+    --brand-400: 160 216 239; /* 标准色 #A0D8EF，深底上做最亮强调 */
+    --brand-500: 74 166 204; /* 深底文字 6.4:1 */
+    --brand-600: 45 134 172; /* 白字 4.1:1 */
+    --brand-700: 24 102 140;
+    --brand-grad-from: 45 134 172;
+    --brand-grad-to: 24 102 140;
+  }
+
+  :root.dark[data-accent='bean'] {
+    --brand-400: 163 221 176;
+    --brand-500: 120 198 139;
+    --brand-600: 79 169 106;
+    --brand-700: 58 139 84;
+    --brand-grad-from: 79 169 106;
+    --brand-grad-to: 58 139 84;
+  }
+
+  html {
+    -webkit-tap-highlight-color: transparent;
+    /* 去掉 Android 双击缩放与 300ms 点按延迟（保留双指缩放）；
+       阅读器另有 body.reader-lock 的 touch-action:none 全锁 */
+    touch-action: manipulation;
+    /*
+     * 让滚动条常驻，消除「列表页长短不一 → 滚动条出现/消失 → 内容区宽度跳 8px」。
+     * 实测 scrollbar-gutter: stable 在当前 Chromium 的根元素上不预留（文档刚好一屏时不生效），
+     * 所以用 overflow-y: scroll 兜底；gutter 保留，给未来浏览器生效时更干净的实现。
+     * 阅读器是全屏沉浸的，那里必须让出这条槽，否则右侧会露一条底色边。
+     */
+    overflow-y: scroll;
+    scrollbar-gutter: stable;
+  }
+
+  html:has(body.reader-lock) {
+    overflow-y: hidden;
+  }
+  body {
+    @apply text-ink-100 antialiased;
+    background-color: rgb(var(--app-bg));
+    overscroll-behavior-y: none;
+    position: relative;
+    min-height: 100dvh;
+  }
+  /* 全局焦点可见：键盘 Tab 时给一圈品牌色外环，鼠标点击不出现 */
+  :focus-visible {
+    outline: 2px solid rgb(var(--brand-500) / 0.75);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+  /* 主题切换时给个短暂过渡，避免颜色硬跳 */
+  body,
+  .card,
+  .btn-ghost,
+  .input {
+    transition: background-color 0.18s ease, color 0.18s ease, border-color 0.18s ease;
+  }
+  /* 阅读器全屏时禁页面滚动 */
+  body.reader-lock {
+    overflow: hidden;
+    touch-action: none;
+  }
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-ink-700;
+    background-clip: padding-box;
+    border: 2px solid transparent;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-ink-600;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  /* 拖动时不选中文字（阅读/横向滑动列表的手感） */
+  .no-drag-select {
+    user-select: none;
+  }
+}
+
+@layer components {
+  /*
+   * 横向可滑行（筛选 chips、继续阅读卡片）：滑动要留着，滚动条不要。
+   *
+   * 两个坑叠在一起，实机上就是「标签栏右侧有一条奇怪的竖条」：
+   *   1) overflow-x: auto 会让 overflow-y 的计算值从 visible 变成 auto，
+   *      于是纵向也会被当作可滚动容器；
+   *   2) chips 上的 .touch-hit::after 比 chip 本身高 10px（34 → 44），
+   *      绝对定位的伪元素会把滚动区域往下撑出 1px。
+   * 结果：竖向滚动条被创建出来 —— 就是那条竖条（还带两端的小方块）。
+   * 这里把纵向裁掉（横向滑动不受影响），并隐藏滚动条本身。
+   */
+  .no-scrollbar {
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  /*
+   * 只隐藏滚动条、**保留滚动能力**。
+   * 与 .no-scrollbar 的区别：那个还顺手把 overflow-y 设成 hidden（给横向 chips 用），
+   * 用在纵向滚动容器上会直接失去滚动。
+   * 用武之地：卷轴阅读器 —— 容器 overflow-y-auto 在桌面端会画一条 8px 的
+   * ::-webkit-scrollbar（全局样式 width:8px + ink-700 thumb），直接压在漫画右侧；
+   * 阅读器本身已有底部页码滑块与进度条，原生滚动条纯属干扰。
+   */
+  .scrollbar-hidden {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-hidden::-webkit-scrollbar {
+    display: none;
+  }
+  /*
+   * 卡片材质：底色 + 一圈极淡描边 + 顶部 1px 内高光 + 柔和外阴影。
+   * 之前只有 ring，深色下卡片和背景几乎分不出层次；加上内高光后边缘有"实物质感"，
+   * 浅色下则靠很淡的阴影托起来，两种主题都不会显脏。
+   */
+  .card {
+    @apply rounded-2xl bg-ink-900;
+    border: 1px solid var(--card-border);
+    box-shadow: var(--shadow-soft), inset 0 1px 0 rgb(var(--edge-light));
+  }
+  /* 玻璃层：侧栏 / 底部 Tab / 悬浮工具条（背景半透 + 高饱和模糊） */
+  .glass {
+    @apply bg-ink-900/55 backdrop-blur-xl backdrop-saturate-150;
+  }
+  /*
+   * 弹层（底部面板 / 确认弹窗）的两套材质，口径只在这里写一次。
+   * 之前两处各写各的：遮罩一个 black/55+blur-md、一个 black/60+blur-sm，
+   * 面板一个半透玻璃、一个 .card 实心 —— 同一个 App 里点开不同弹层，
+   * 背景压暗的程度和面板质感都不一样，是不该有的两套观感。
+   * 压暗取 55% + 强模糊（面板浮起时整屏不至于发死黑），模糊比内容区重一档
+   * 让层次落在"清晰的前景 + 化开背景"上。
+   */
+  .scrim {
+    @apply absolute inset-0 bg-black/55 backdrop-blur-md;
+  }
+  .panel-surface {
+    @apply bg-ink-900/75 ring-1 ring-white/5 backdrop-blur-xl backdrop-saturate-150;
+  }
+  /* 平面卡片（不做圆角与阴影，仅用来分隔区块时使用） */
+  .card-flat {
+    @apply rounded-2xl bg-ink-900;
+    border: 1px solid var(--card-border);
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium
+           transition-[transform,background-color,color,box-shadow,filter] duration-150
+           disabled:pointer-events-none disabled:opacity-45 active:scale-[0.97];
+  }
+  /* 主按钮：上浅下深的竖向渐变 + 内高光，比纯色更接近"实体按键" */
+  .btn-primary {
+    @apply btn text-white hover:brightness-110;
+    background-image: linear-gradient(180deg, rgb(var(--brand-grad-from)), rgb(var(--brand-grad-to)));
+    box-shadow: var(--shadow-soft), inset 0 1px 0 rgb(255 255 255 / 0.22);
+  }
+  .btn-ghost {
+    @apply btn text-ink-300 hover:bg-ink-800 hover:text-ink-100;
+  }
+  .chip {
+    @apply shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-colors;
+  }
+  /* 通用按压回弹：点按轻微缩小，松手回弹，给所有可点元素一致的触感。
+     同时过渡颜色，避免覆盖 .chip/按钮自带的 transition-colors（否则颜色会瞬变） */
+  .press {
+    @apply transition-[transform,color,background-color] duration-100 active:scale-[0.96];
+  }
+  .chip-on {
+    @apply chip text-white;
+    background-image: linear-gradient(180deg, rgb(var(--brand-500)), rgb(var(--brand-grad-to)));
+    box-shadow: 0 2px 10px -4px rgb(var(--brand-500) / 0.55), inset 0 1px 0 rgb(255 255 255 / 0.2);
+  }
+  .chip-off {
+    @apply chip bg-ink-900 text-ink-300 ring-1 ring-inset ring-ink-800/60 hover:bg-ink-800 hover:text-ink-100;
+  }
+
+  /*
+   * 触屏（手机 / 平板）加码。桌面保持紧凑观感，只在 pointer: coarse 时生效：
+   *   1) .touch-hit —— 用伪元素把可点区域补到 44×44，元素本身的视觉尺寸不变。
+   *      为什么不加 padding：那会连带改变桌面端的间距与整行高度。
+   *      横向按 max(100%, 44px) 居中展开，控件之间有间距时不会压到邻居地盘
+   *      （responsive_check.mjs 里有命中点校验，防止偷走相邻控件的点击）。
+   *      纵向补到 44px 是 Apple HIG / Material 的通行下限。
+   *   2) 筛选 chip 放高一档（28 → 34）：手机上这是主要交互区，有明确落点更安心。
+   * input[type=range] 不能用 .touch-hit 扩展命中区：range 的拖动手势必须命中
+   * input 本体，套一层 span 后 ::after 会盖在上面，触屏按下去事件落到 span，
+   * 滑块就完全拖不动了（实测 value 恒定不变）。所以滑块的命中区只能靠
+   * 把控件自身做高 —— 见下方 input[type='range'] 规则。
+   */
+  @media (pointer: coarse) {
+    .chip {
+      min-height: 34px;
+      @apply px-4;
+    }
+    /* 标准按钮 / 输入框：36 → 44，达到 HIG 的下限。桌面的紧凑尺寸不动 */
+    .btn,
+    .input {
+      min-height: 44px;
+    }
+    .touch-hit {
+      position: relative;
+    }
+    .touch-hit::after {
+      content: '';
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: max(100%, 44px);
+      height: max(100%, 44px);
+      /* 命中区只负责「让手指落在元素上」，不吃掉元素自身的交互：
+         伪元素在按钮上点击会冒泡到宿主，没问题；但绝不能用在 range 上 */
+    }
+    /*
+     * 滑块：把控件自身做到 44px 高（真实命中高度），thumb 放大到 24px。
+     * appearance:none 才能自定义 thumb —— 只在触屏生效，桌面保持浏览器原生样式。
+     */
+    input[type='range'] {
+      -webkit-appearance: none;
+      appearance: none;
+      height: 44px;
+      background: transparent;
+      cursor: pointer;
+    }
+    input[type='range']::-webkit-slider-runnable-track {
+      height: 6px;
+      border-radius: 999px;
+      background: rgb(var(--ink-700));
+    }
+    input[type='range']::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 24px;
+      height: 24px;
+      margin-top: -9px; /* (轨道 6 - thumb 24) / 2 */
+      border-radius: 999px;
+      background: rgb(var(--brand-500));
+      box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
+    }
+    input[type='range']::-moz-range-track {
+      height: 6px;
+      border-radius: 999px;
+      background: rgb(var(--ink-700));
+    }
+    input[type='range']::-moz-range-thumb {
+      width: 24px;
+      height: 24px;
+      border: 0;
+      border-radius: 999px;
+      background: rgb(var(--brand-500));
+    }
+  }
+
+  /* 图片/封面容器：一圈与主题匹配的细边，让图与页面底色之间有明确分界 */
+  .media-frame {
+    border: 1px solid var(--card-border);
+  }
+  /*
+   * 页面顶部环境光：一层只从「高亮色」派生的薄雾，给单列页面一点纵深。
+   * 早先这里是拿封面图自身模糊 40px 当光源（"封面即光源"），后果是同一套 UI 在
+   * 不同漫画下底色完全不同：蓝封面的详情页整个顶部发蓝，深色封面把顶气压成灰黑，
+   * 连标题的对比度都跟着变。现在改为品牌色径向渐变——换书不变，换高亮色才变。
+   */
+  /*
+   * 光晕"有质感"靠三件套，缺一件就会退回"上面糊了一片色"：
+   *
+   *   1. **四层色团**：单层/双层椭圆没有纵深。最宽的一层用 --page-glow-2 压底
+   *      （比底色略沉，负责把中间的光"托"出来），其余三层用 --page-glow-1 提亮，
+   *      位置与衰减各不相同，叠出 mesh 渐变那种此起彼伏的层次，而不是左右对称的两坨。
+   *   2. **印刷网点**（::after）：漫画的网点纸，也是这个项目最贴题的质感语言。
+   *      大面积纯渐变在屏幕上最容易显出"塑料感"和色带（banding），
+   *      撒一层极淡的圆点之后，色块有了颗粒，观感从"渐变"变成"材质"。
+   *   3. **边缘羽化**：上下左右都柔化，只做竖向渐隐的话左右会出现硬切边。
+   */
+  .page-ambient {
+    position: absolute;
+    inset-inline: 0;
+    top: 0;
+    height: 18rem;
+    /* -z-1：压在内容之下（内容区没有自己的底色） */
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(ellipse 80% 106% at 32% -22%, rgb(var(--page-glow-2) / calc(var(--page-glow-a) * 0.8)), transparent 72%),
+      radial-gradient(ellipse 60% 90% at 60% -16%, rgb(var(--page-glow-1) / var(--page-glow-a)), transparent 68%),
+      radial-gradient(ellipse 38% 74% at 91% -12%, rgb(var(--page-glow-1) / var(--page-glow-b)), transparent 64%),
+      radial-gradient(ellipse 24% 50% at 13% 2%, rgb(var(--page-glow-1) / calc(var(--page-glow-b) * 0.72)), transparent 56%);
+    /* 上下都柔化：只做竖向渐隐的话左右边缘会出现硬切边 */
+    -webkit-mask-image: radial-gradient(ellipse 124% 100% at 50% 0%, #000 0%, #000 34%, transparent 78%);
+    mask-image: radial-gradient(ellipse 124% 100% at 50% 0%, #000 0%, #000 34%, transparent 78%);
+  }
+  .page-ambient::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    /* 6px 网格 + 0.9px 点：再密就成噪点、再疏就成了图案；点的直径留到 1.8px
+       是为了在 DPR=1 的屏幕上也不被抗锯齿抹掉 */
+    background-image: radial-gradient(
+      circle at 50% 50%,
+      rgb(var(--page-grain) / var(--page-grain-a)) 0.9px,
+      transparent 1.35px
+    );
+    background-size: 6px 6px;
+    /*
+      网点的衰减必须比色团更快：色团是"氛围"，铺到页面两侧也没关系；
+      网点一旦跑出光晕范围，落在纯底色上就变成一片来路不明的麻点。
+    */
+    -webkit-mask-image: radial-gradient(ellipse 106% 88% at 50% -6%, #000 0%, #000 22%, transparent 60%);
+    mask-image: radial-gradient(ellipse 106% 88% at 50% -6%, #000 0%, #000 22%, transparent 60%);
+  }
+  /*
+   * （原 .chapter-done「已读格子抽空」样式随 chapter_progress 一起移除：
+   *  分章进度功能已删，章节列表只标「当前在读」，不再有已读态。）
+   */
+
+  .input {
+    @apply w-full rounded-xl bg-ink-900 px-3 py-2 text-sm text-ink-100 ring-1 ring-ink-800
+           transition-[box-shadow,border-color] duration-150
+           placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-brand-600/80;
+  }
+  .skeleton {
+    @apply relative overflow-hidden rounded-lg bg-ink-800;
+  }
+  /* 骨架流光：一条高光从左扫到右，比单纯闪烁更有质感，且自动跟随主题（ink-700 变量） */
+  .skeleton::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgb(var(--ink-700) / 0.4) 45%,
+      rgb(var(--ink-700) / 0.4) 55%,
+      transparent
+    );
+    transform: translateX(-100%);
+    animation: skeleton-shimmer 1.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  }
+  @keyframes skeleton-shimmer {
+    to { transform: translateX(100%); }
+  }
+  /* 底部弹层的「把手」：给面板一个可以抓的视觉锚点 */
+  .sheet-grabber {
+    @apply mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-ink-700/70;
+  }
+  /*
+   * 路由内容切换：**只淡入，不做位移**。
+   * 之前用的是 rise（translateY 8px → 0），逐帧采样能看到 main.top 在 8→5→2→0 之间变，
+   * 在大容器上就是「打开页面时整块内容先低一点再对齐」，也就是被感知成错位。
+   * 位移留给卡片级入场（.anim-card-in）——元素小、有错峰，观感是「浮现」而不是「晃一下」。
+   */
+  .anim-route {
+    animation: route-fade 0.2s var(--ease-out) both;
+  }
+  /* 封面网格：2 列手机 → 自适应桌面 */
+  .comic-grid {
+    @apply grid grid-cols-3 gap-x-3 gap-y-4 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8;
+  }
+  /*
+   * 动态视口高度（平板/手机浏览器地址栏伸缩时，100vh 大于可见区，底部内容会被吞）。
+   * 先写 100vh 兜底，再用 dvh 覆盖——不支持 dvh 的旧浏览器忽略第二行，行为不变。
+   */
+  .min-h-dvh {
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+  .h-dvh {
+    height: 100vh;
+    height: 100dvh;
+  }
+  /* 底部弹出层高度上限：同上，76dvh 在地址栏展开时也不会超出可见区 */
+  .max-h-sheet {
+    max-height: 76vh;
+    max-height: 76dvh;
+  }
+}
+
+/* 翻页动画（受「设置-翻页动画」控制）：滑动 / 淡入 / 无 */
+/* 滑动从 --dx 滑入并淡入，--dx 由翻页方向与阅读方向(rtl/ltr)决定；
+   入场附带极轻的 0.985→1 缩放，制造「翻页」的纵深感而非单纯平移 */
+@keyframes page-slide {
+  from { transform: translateX(var(--dx, 28px)) scale(0.985); opacity: 0; }
+  to { transform: translateX(0) scale(1); opacity: 1; }
+}
+@keyframes page-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.anim-page-slide { animation: page-slide 0.26s cubic-bezier(0.22, 1, 0.36, 1); }
+.anim-page-fade { animation: page-fade 0.22s ease-out; }
+
+/* ---------------- 平移翻页（pan） ----------------
+   整条「胶片」一起位移（相邻页始终挂在轨道上），所以旧页永远不会先消失再回来。
+   位移由 pagers.tsx 的 usePanTrack 直接写 transform：
+     - 点击/按键：一段短促的整页位移（260ms）
+     - 拖动：1:1 跟手，松手按「距离 + 速度」吸附
+   will-change / translate3d 交给合成器，避免逐帧重排掉帧。 */
+.pan-track {
+  will-change: transform;
+  backface-visibility: hidden;
+  transform-style: preserve-3d;
+}
+.pan-surface {
+  /* 横滑手势自己接管，别让浏览器把纵向滚动/双击缩放掺进来 */
+  touch-action: none;
+  overscroll-behavior: contain;
+}
+
+/* ---------------- 首/末页「抵住」（平移模式） ----------------
+   以前这套只有「整页横抖 20px + 居中纯黑胶囊」：抖动是硬位移（没有缩放、没有过冲），
+   胶囊是不透明黑块，观感像系统 alert，和阅读器其它动效不在同一套语言里。
+
+   现在分三层，各管一件事：
+   1) 轨道跟手：到边界后仍按 0.3 阻尼位移，空槽那一侧被拉开一道窄缝（几何在 usePanTrack）。
+   2) .pan-edge-glow：压在那道缝上的品牌色柔光，亮度 = 实际拉开的比例。
+      --pull（0..1）在拖动中由 JS 直接写 style，不触发 React 渲染；松手时归零，
+      靠 opacity transition 自然收光，于是「拉开→顶住→收光」是连续的，而不是开关式闪一下。
+   3) .reader-notice：玻璃质感提示卡 + 方向图标，从拉动那一侧浮入。
+      页面本体同时跑一次 anim-edge-bump-*：先被推 9px、再带 3px 过冲回来（340ms），
+      幅度比原来的 20px 小、曲线更软，读起来是「顶到纸边」而不是「晃了一下」。 */
+.pan-edge-glow {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 26%;
+  z-index: 3;
+  pointer-events: none;
+  opacity: calc(var(--pull, 0) * 0.95);
+  transition: opacity 0.34s var(--ease-out);
+  will-change: opacity;
+}
+.pan-edge-glow[data-side='left'] {
+  left: 0;
+  background: linear-gradient(
+    to right,
+    rgb(var(--brand-200) / 0.85),
+    rgb(var(--brand-400) / 0.34) 34%,
+    transparent 94%
+  );
+  -webkit-mask-image: linear-gradient(to right, #000 0%, rgb(0 0 0 / 0.46) 34%, transparent 82%);
+  mask-image: linear-gradient(to right, #000 0%, rgb(0 0 0 / 0.46) 34%, transparent 82%);
+}
+.pan-edge-glow[data-side='right'] {
+  right: 0;
+  background: linear-gradient(
+    to left,
+    rgb(var(--brand-200) / 0.85),
+    rgb(var(--brand-400) / 0.34) 34%,
+    transparent 94%
+  );
+  -webkit-mask-image: linear-gradient(to left, #000 0%, rgb(0 0 0 / 0.46) 34%, transparent 82%);
+  mask-image: linear-gradient(to left, #000 0%, rgb(0 0 0 / 0.46) 34%, transparent 82%);
+}
+
+@keyframes edge-bump-next {
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  20% { transform: translate3d(-9px, 0, 0) scale(0.997); }
+  58% { transform: translate3d(3px, 0, 0) scale(1.001); }
+  100% { transform: translate3d(0, 0, 0) scale(1); }
+}
+@keyframes edge-bump-prev {
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  20% { transform: translate3d(9px, 0, 0) scale(0.997); }
+  58% { transform: translate3d(-3px, 0, 0) scale(1.001); }
+  100% { transform: translate3d(0, 0, 0) scale(1); }
+}
+.anim-edge-bump-next { animation: edge-bump-next 340ms cubic-bezier(0.22, 0.9, 0.3, 1); }
+.anim-edge-bump-prev { animation: edge-bump-prev 340ms cubic-bezier(0.22, 0.9, 0.3, 1); }
+
+/* 阅读器轻提示：玻璃胶囊。--from 控制入场方向（从拉动的那一侧浮进来） */
+.reader-notice {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  max-width: 82vw;
+  padding: 0.5rem 0.9rem;
+  border-radius: 999px;
+  font-size: 12.5px;
+  line-height: 1.25;
+  letter-spacing: 0.01em;
+  color: rgb(255 255 255 / 0.92);
+  background: rgb(20 22 28 / 0.55);
+  border: 1px solid rgb(255 255 255 / 0.12);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.09),
+    0 10px 30px -12px rgb(0 0 0 / 0.85);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+}
+@keyframes notice-in {
+  from { opacity: 0; transform: translate3d(var(--from, 0px), 6px, 0) scale(0.94); filter: blur(6px); }
+  to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); filter: blur(0); }
+}
+.reader-notice { animation: notice-in 0.28s var(--ease-out) both; }
+/* 到头提示：描边掺一点品牌色，和边缘光同色相（换章提示保持中性白描边） */
+.reader-notice-edge { border-color: rgb(var(--brand-300) / 0.22); }
+/* 提示卡里的小图标：品牌色，暗示"这条就是那道边" */
+.reader-notice-icon { color: rgb(var(--brand-300)); }
+
+/*
+ * 阅读器「可操作提示卡」：续读告知 / 章末收尾 / 全书收尾。
+ *
+ * 走底部而不是居中：带按钮的卡片居中会压在画面正中，把刚读完（或正在看）的那一页
+ * 整个盖住；底部浮入只占视野下缘，又正好接在底部工具栏上方——手本来就落在那儿。
+ * 玻璃质感与 .reader-notice 同一套参数，两者同屏时是「一张卡 + 一条胶囊」而不是两套 UI。
+ */
+.reader-prompt {
+  pointer-events: auto;
+  width: min(92vw, 24rem);
+  padding: 0.7rem 0.8rem 0.75rem;
+  border-radius: 14px;
+  color: rgb(255 255 255 / 0.92);
+  background: rgb(18 20 26 / 0.72);
+  border: 1px solid rgb(255 255 255 / 0.12);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.08),
+    0 18px 44px -18px rgb(0 0 0 / 0.92);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  animation: prompt-in 0.3s var(--ease-out) both;
+}
+.reader-prompt-icon { color: rgb(var(--brand-300)); }
+.reader-prompt-btn {
+  min-height: 32px;
+  padding: 0.3rem 0.7rem;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 500;
+  color: rgb(255 255 255 / 0.88);
+  background: rgb(255 255 255 / 0.1);
+  border: 1px solid rgb(255 255 255 / 0.14);
+  transition: transform 0.1s ease, background-color 0.15s ease;
+}
+.reader-prompt-btn:active { transform: scale(0.96); }
+/* 主行动与全站 .btn-primary 同款渐变；黑字是因为琥珀底上白字读不清 */
+.reader-prompt-btn.is-primary {
+  color: rgb(12 14 18);
+  font-weight: 600;
+  border-color: transparent;
+  background-image: linear-gradient(180deg, rgb(var(--brand-grad-from)), rgb(var(--brand-grad-to)));
+  box-shadow: 0 6px 16px -8px rgb(var(--brand-500) / 0.8), inset 0 1px 0 rgb(255 255 255 / 0.25);
+}
+@keyframes prompt-in {
+  from { opacity: 0; transform: translate3d(0, 14px, 0) scale(0.97); filter: blur(4px); }
+  to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); filter: blur(0); }
+}
+@keyframes prompt-out {
+  from { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+  to { opacity: 0; transform: translate3d(0, 8px, 0) scale(0.98); }
+}
+/* 退场：与 useReaderPrompt 的 OUT_MS(200) 一致 */
+.reader-prompt.is-leaving { animation: prompt-out 0.2s ease-in both; }
+
+/* 阅读器整屏进入：淡入 + 极轻缩放，避免硬切 */
+@keyframes reader-in {
+  from { opacity: 0; transform: scale(1.015); }
+  to { opacity: 1; transform: scale(1); }
+}
+.anim-reader-in { animation: reader-in 0.24s cubic-bezier(0.22, 1, 0.36, 1); }
+
+/*
+ * 阅读器加载态（章节还没就绪时的骨架外壳）。
+ * 它是在 120ms 阈值之后才挂上的，所以这里只做淡入——不做位移，
+ * 否则「延迟出现 + 上浮」叠加会像一次额外的页面切换。
+ */
+@keyframes loading-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.anim-loading-in { animation: loading-in 0.22s var(--ease-out) both; }
+
+/* 加载态页面骨架底部的 1px 不确定进度条（.anim-loading-bar）已随阅读器骨架
+   一并移除：现在加载态是吉祥物 + 一行字，没有"页面本体"可供它挂在上面。
+   git 历史里可以找回（搜索 loading-bar）。 */
+
+/* 通用入场（动画 token 用）：淡入 + 上浮 */
+@keyframes rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* 路由切换：纯淡入，不带位移（原因见 .anim-route 的注释） */
+@keyframes route-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* 卡片入场（淡入 + 轻微上浮）。
+   刻意不写 will-change：网格里 100+ 张卡片各留一个合成层会吃掉大量显存/合成时间，
+   而 340ms 的一次性动画浏览器本来就会自动提升，动画结束又自动降级。 */
+@keyframes card-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.anim-card-in { animation: card-in 0.34s var(--ease-out) both; }
+
+/* 轻提示入场：轻微上浮 + 放大，和卡片入场同一套手感，但更快（提示要立刻被看到） */
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.anim-toast-in { animation: toast-in 0.2s var(--ease-out) both; }
+
+/*
+ * 轻提示退场：比进场短一档（160ms vs 200ms）—— 提示该「被看到」时慢一点，
+ * 「该走」时干脆一点。距离也比进场小（6px vs 10px）：退场是收尾，不该再抢注意力。
+ * 必须是独立的 animation 而不是 transition：入场那条是 fill-mode both，
+ * 动画结束后 transform 仍归它管，会把退场的位移盖掉（只剩透明度在变）。
+ */
+@keyframes toast-out {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(6px) scale(0.97); }
+}
+.anim-toast-out { animation: toast-out 0.16s var(--ease-out) forwards; }
+
+/* 封面/图片淡入：只过渡 opacity，transform 留给 hover 缩放，避免两套 transform 互相覆盖 */
+.cover-img { opacity: 0; transition: opacity 0.3s var(--ease-out), transform 0.45s var(--ease-out); }
+.cover-img.is-loaded { opacity: 1; }
+
+/*
+ * 骨架 → 真实内容：同一次路由内的子树替换（详情页骨架、首页「继续阅读」）。
+ * 复用 route-fade 的 keyframes：这里要的就是同一个「纯淡入」，没有第二种语义。
+ * 不带位移的理由与 .anim-route 相同 —— 大容器上 8px 位移会被读成「内容错位」。
+ */
+.anim-content-in { animation: route-fade 0.22s var(--ease-out) both; }
+
+/*
+ * 图标「弹一下」（收藏切换的反馈）。
+ * 不用 tailwind 的 animate-pop：那条从 opacity:0 起步，在已经存在的图标上
+ * 播出来是「闪一下」而不是「弹一下」；这里只动 scale，并自带过冲。
+ */
+@keyframes icon-bump {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.32); }
+  70% { transform: scale(0.94); }
+  100% { transform: scale(1); }
+}
+.anim-icon-bump { animation: icon-bump 0.32s var(--ease-out) both; }
+
+/*
+ * 主题 / 高亮色切换：临时开启全局颜色过渡。
+ * 类由 theme.ts 在切换那一刻挂到 <html> 上、220ms 后摘掉（见那里的注释）。
+ * 用 !important 是因为要盖掉 .btn 之类自带的 transition 简写；
+ * 整块包在 no-preference 里，保证「减少动态效果」下依然不生效。
+ */
+@media (prefers-reduced-motion: no-preference) {
+  .theme-transition,
+  .theme-transition *,
+  .theme-transition *::before,
+  .theme-transition *::after {
+    transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease,
+      fill 0.2s ease, stroke 0.2s ease, box-shadow 0.2s ease !important;
+  }
+}
+
+/* 无障碍：用户系统级「减少动态效果」时，几乎关闭所有动画/过渡。
+   弹层退出仍由 setTimeout 兜底卸载，不会卡死。 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    /* 错峰入场的延迟也要归零：否则卡片会在「不可见」状态下干等 300ms 才出现 */
+    animation-delay: 0ms !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/*
+ * 吉祥物状态插画（品牌牛角娘，布卡娘式的状态页点缀）。
+ *
+ * 线稿是单色 + alpha，所以把它当**遮罩**用、颜色交给 CSS 变量：
+ *   - 颜色 = rgb(var(--ink-300))，也就是状态页标题那一行字的颜色，
+ *     于是插画和下面的文字永远同色，亮/暗主题各自跟随；
+ *   - 素材因此只有一套（不需要亮版/暗版两份，也不需要在切换主题时换图）。
+ * 最初的版本是直接塞 <img> 深棕线稿：暗色底上只有 1.28:1，基本看不见；
+ * 改成中性灰虽然两头都能看，但和文字仍不是同一个颜色。
+ *
+ * 不支持 mask 的老内核回退成 background-image（中性灰线稿那套），
+ * 只是不与文字同色，不会变成一块实心色块。**素材里保留了原始 RGB**，
+ * 正是为了让这条回退还能看见东西——别为了省几 KB 把 RGB 刷白。
+ *
+ * 素材位置：`src/assets/status/`（不是 public/）。走 Vite 资源管线才有内容指纹，
+ * 于是一起落进 SW 的 `/assets/**` cache-first：重复访问零网络、换素材又立刻生效
+ * （改内容 → hash 变 → URL 变）。当年放 public/ 时文件名不带指纹，SW 只能对
+ * `/status/**` 用 network-first，代价是每次访问都要重下一遍插画。
+ *
+ * `status-loading` 按**显示尺寸**出图：显示只有 96px（h-24），原来却供 512px/48KB。
+ * 192px（2x 屏）q80 是 14KB，96px 下 alpha PSNR 43.6 dB —— 肉眼没有区别。
+ * 其余几张不在首屏关键路径上，维持 512px 原图。
+ */
+.mascot {
+  background-size: contain;
+  background-repeat: no-repeat;
+  /* bottom 对齐：人物站在文字上方，像「站在地面上」而不是漂在半空 */
+  background-position: center bottom;
+}
+.mascot-404 {
+  --mascot: url(./assets/status/status-404.webp);
+  background-image: var(--mascot);
+}
+.mascot-empty {
+  --mascot: url(./assets/status/status-empty.webp);
+  background-image: var(--mascot);
+}
+.mascot-search {
+  --mascot: url(./assets/status/status-search-empty.webp);
+  background-image: var(--mascot);
+}
+.mascot-load-failed {
+  --mascot: url(./assets/status/status-load-failed.webp);
+  background-image: var(--mascot);
+}
+.mascot-login {
+  --mascot: url(./assets/status/status-login.webp);
+  background-image: var(--mascot);
+}
+.mascot-loading {
+  --mascot: url(./assets/status/status-loading.webp);
+  background-image: var(--mascot);
+}
+.mascot-thank {
+  --mascot: url(./assets/status/status-thank.webp);
+  background-image: var(--mascot);
+}
+
+@supports (mask-image: url(#m)) or (-webkit-mask-image: url(#m)) {
+  .mascot {
+    /* 与状态页标题（text-ink-300）同一个变量：改主题色时插画跟着变 */
+    background-color: rgb(var(--ink-300));
+    background-image: none;
+    -webkit-mask: var(--mascot) center bottom / contain no-repeat;
+    mask: var(--mascot) center bottom / contain no-repeat;
+  }
+  /*
+   * 阅读器里的变体：那里永远是纯黑底（不是 ink-950），-ink-300 的冷灰是给
+   * 深蓝底调的，放到纯黑上会跳出画面。而且插画叠在骨架灰块上而不是黑底上，
+   * 0.62 那种「轻」的程度实测直接隐身，必须接近实色才读得出来；
+   * 0.9 在骨架底上约 5:1，够清晰又不至于比「打开漫画…」那行字更抢眼。
+   */
+  .mascot-light {
+    background-color: rgb(255 255 255 / 0.9);
+  }
+}

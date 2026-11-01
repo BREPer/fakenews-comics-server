@@ -1,0 +1,44 @@
+#!/bin/bash
+# 安装后回调：应用文件已就位、目录结构已创建后执行。
+# 预创建数据目录结构（与 docker-compose.yaml 中 ${TRIM_PKGVAR}/data:/data 对应）：
+#   data/db/fakenews-comics.db   SQLite 主库（进度、收藏、库索引）
+#   data/cache/                缩略图与原图缓存
+#
+# 默认漫画库不在此创建：容器首次启动时，服务端发现库表为空且
+# /comics（即向导收集的 COMIC_ROOT）已挂载，会自动创建默认库并扫描。
+
+if [ -z "${TRIM_PKGVAR}" ]; then
+    echo "TRIM_PKGVAR is not set; cannot prepare application data directory" >"${TRIM_TEMP_LOGFILE}"
+    exit 1
+fi
+
+# 镜像由 fnOS 安装后 `compose up` 现场构建（见 docker-compose.yaml 的 build:），
+# 这里不需要 docker load。Go 版镜像只是「COPY 预编译二进制 + 前端 dist」，
+# 构建 1~2 秒、零联网，故数据目录预创建完即可，镜像构建交给应用中心编排。
+
+mkdir -p "${TRIM_PKGVAR}/data/db"
+mkdir -p "${TRIM_PKGVAR}/data/cache"
+
+# 持久化向导收集的环境变量，供 docker-compose.yaml 的 ${COMIC_ROOT}/${APP_PORT}/${TRIM_PKGVAR}/${TZ} 替换。
+# 关键：fnOS 对 docker-project 是通过 `docker compose -f <应用根>/docker/docker-compose.yaml up` 调用的
+# （CWD = 应用根 ${TRIM_APPDEST}），compose 只会在 CWD（应用根）自动加载 .env，不会去 docker/ 子目录找。
+# 所以 .env 必须写在应用根；同时再写一份到 docker/ 子目录兼容「cd docker 再 up」的实现
+# （cmd/main 兜底也会 source 它）。这是修复"安装报 invalid spec :/comics:ro"的核心。
+COMPOSE_DIR="$(dirname "${TRIM_APPDEST}/docker/docker-compose.yaml")"
+TZ_VAL="${TZ:-$(cat /etc/timezone 2>/dev/null || echo 'Asia/Shanghai')}"
+write_env() {
+    {
+        echo "# 由安装回调自动生成，请勿手改；修改漫画目录/端口请在应用设置页操作"
+        echo "COMIC_ROOT=${COMIC_ROOT:-/comics}"
+        echo "APP_PORT=${APP_PORT:-2233}"
+        echo "TRIM_PKGVAR=${TRIM_PKGVAR}"
+        echo "TZ=${TZ_VAL}"
+    } >"$1" 2>/dev/null
+}
+write_env "${TRIM_APPDEST}/.env"
+write_env "${COMPOSE_DIR}/.env"
+
+echo "Prepared application data directory: ${TRIM_PKGVAR}/data"
+echo "Wrote compose env files: ${TRIM_APPDEST}/.env and ${COMPOSE_DIR}/.env"
+
+exit 0

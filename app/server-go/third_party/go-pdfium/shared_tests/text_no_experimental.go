@@ -1,0 +1,98 @@
+//go:build !pdfium_experimental
+
+package shared_tests
+
+import (
+	"os"
+
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+
+	"github.com/klippa-app/go-pdfium/references"
+	"github.com/klippa-app/go-pdfium/requests"
+)
+
+var _ = Describe("text", func() {
+	BeforeEach(func() {
+		Locker.Lock()
+
+		if TestType == "webassembly" {
+			// Webassembly has all the experimental things implemented.
+			Skip("This test is skipped on Webassembly")
+		}
+	})
+
+	AfterEach(func() {
+		Locker.Unlock()
+
+		if TestType == "webassembly" {
+			// Webassembly has all the experimental things implemented.
+			Skip("This test is skipped on Webassembly")
+		}
+	})
+
+	Context("a normal PDF file", func() {
+		var doc references.FPDF_DOCUMENT
+
+		BeforeEach(func() {
+			pdfData, err := os.ReadFile(TestDataPath + "/testdata/test.pdf")
+			Expect(err).To(BeNil())
+
+			newDoc, err := PdfiumInstance.FPDF_LoadMemDocument(&requests.FPDF_LoadMemDocument{
+				Data: &pdfData,
+			})
+			Expect(err).To(BeNil())
+
+			doc = newDoc.Document
+		})
+
+		AfterEach(func() {
+			FPDF_CloseDocument, err := PdfiumInstance.FPDF_CloseDocument(&requests.FPDF_CloseDocument{
+				Document: doc,
+			})
+			Expect(err).To(BeNil())
+			Expect(FPDF_CloseDocument).To(Not(BeNil()))
+		})
+
+		When("is opened", func() {
+			Context("when the structured page text is requested", func() {
+				Context("when PixelPositions is enabled", func() {
+					It("returns the correct font information", func() {
+						pageTextStructured, err := PdfiumInstance.GetPageTextStructured(&requests.GetPageTextStructured{
+							Page: requests.Page{
+								ByIndex: &requests.PageByIndex{
+									Document: doc,
+									Index:    0,
+								},
+							},
+							CollectFontInformation: true,
+						})
+						Expect(err).To(BeNil())
+						Expect(pageTextStructured).To(Or(loadStructuredText(pageTextStructured, TestDataPath+"/testdata/text_"+TestType+"_testpdf_with_font_information.json", TestDataPath+"/testdata/text_"+TestType+"_testpdf_with_font_information_7776.json")...))
+					})
+
+					Context("and PixelPositions is enabled", func() {
+						It("returns the correct font information", func() {
+							pageTextStructured, err := PdfiumInstance.GetPageTextStructured(&requests.GetPageTextStructured{
+								Page: requests.Page{
+									ByIndex: &requests.PageByIndex{
+										Document: doc,
+										Index:    0,
+									},
+								},
+								CollectFontInformation: true,
+								PixelPositions: requests.GetPageTextStructuredPixelPositions{
+									Calculate: true,
+									Width:     3000,
+									Height:    3000,
+								},
+							})
+							Expect(err).To(BeNil())
+							Expect(pageTextStructured).To(Or(loadStructuredText(pageTextStructured, TestDataPath+"/testdata/text_"+TestType+"_testpdf_with_font_information_and_pixel_positions.json", TestDataPath+"/testdata/text_"+TestType+"_testpdf_with_font_information_and_pixel_positions_7776.json")...))
+						})
+					})
+				})
+			})
+		})
+	})
+})

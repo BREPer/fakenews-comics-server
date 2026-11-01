@@ -1,0 +1,92 @@
+#!/bin/bash
+# fakenews-comics 主生命周期脚本 —— 由 fnOS 应用中心在启动/停止/查询状态时调用。
+#
+# 用法: main <start|stop|status>
+#   start   启动应用。Docker 类应用的容器由 fnOS 应用中心统一管理，
+#           这里直接成功返回（容器真正的创建发生在 status 流程中，见下）。
+#   stop    停止应用。同理，容器停止由应用中心执行，此处直接成功返回。
+#   status  状态检查。退出码约定：
+#             0 = 正在运行
+#             1 = 异常（如容器创建失败）
+#             3 = 未运行
+#
+# 注意：本脚本内所有错误信息必须写入 ${TRIM_TEMP_LOGFILE}，
+#       不要直接 echo 到 stdout（stdout 内容会展示给用户）。
+
+set -u
+
+COMPOSE_DIR="$(dirname "${TRIM_APPDEST}/docker/docker-compose.yaml")"
+
+# compose 项目下是否有 running 状态的容器
+is_docker_running() {
+    local RUNNING
+    RUNNING=$(docker compose -p "$TRIM_APPNAME" ps --format '{{.State}}' 2>/dev/null | grep -ci 'running')
+    [ "$RUNNING" -gt 0 ]
+}
+
+# 确保 compose 中的容器已被创建（不存在则执行 docker compose up -d）
+ensure_containers_created() {
+    cd "$COMPOSE_DIR" || return 1
+    # .env 双位置兜底：应用根（fnOS 自动 compose up 的 CWD，必须）+ docker/ 子目录（兼容 cd docker 的实现）。
+    # 仅在当前环境确实带有向导字段时才兜底生成，避免把 COMIC_ROOT 错写成容器内的 /comics。
+    gen_env_if_missing() {
+        local f="$1"
+        if [ ! -f "$f" ] && { [ -n "${COMIC_ROOT:-}" ] || [ -n "${APP_PORT:-}" ]; }; then
+            {
+                echo "# 由 cmd/main 兜底生成"
+                [ -n "${COMIC_ROOT:-}" ] && echo "COMIC_ROOT=${COMIC_ROOT}"
+                [ -n "${APP_PORT:-}" ] && echo "APP_PORT=${APP_PORT}"
+                [ -n "${TRIM_PKGVAR:-}" ] && echo "TRIM_PKGVAR=${TRIM_PKGVAR}"
+                echo "TZ=${TZ:-$(cat /etc/timezone 2>/dev/null || echo 'Asia/Shanghai')}"
+            } >"$f" 2>/dev/null
+        fi
+    }
+    gen_env_if_missing "${TRIM_APPDEST}/.env"
+    gen_env_if_missing "${COMPOSE_DIR}/.env"
+    # 加载持久化 .env（安装/配置回调写入的 COMIC_ROOT/APP_PORT/TRIM_PKGVAR/TZ），
+    # 让 docker-compose.yaml 的 ${COMIC_ROOT} 等变量替换一定生效。
+    for f in "${TRIM_APPDEST}/.env" "${COMPOSE_DIR}/.env"; do
+        [ -f "$f" ] && { set -a; . "$f"; set +a; }
+    done
+    [ -n "${TRIM_PKGVAR:-}" ] && export TRIM_PKGVAR
+    [ -n "${TRIM_APPNAME:-}" ] && export TRIM_APPNAME
+    [ -n "${TRIM_APPDEST:-}" ] && export TRIM_APPDEST
+    local EXISTS
+    EXISTS=$(docker compose -p "$TRIM_APPNAME" ps -a --format '{{.Name}}' 2>/dev/null | wc -l)
+    if [ "$EXISTS" -gt 0 ]; then
+        return 0
+    fi
+
+    echo "running: docker compose -p $TRIM_APPNAME up -d"
+    if ! docker compose -p "$TRIM_APPNAME" up -d 2>&1; then
+        echo "Docker compose 创建容器失败" >"${TRIM_TEMP_LOGFILE}"
+        return 1
+    fi
+    return 0
+}
+
+case "$1" in
+start)
+    echo "fakenews-comics: start requested (containers are managed by appcenter)"
+    exit 0
+    ;;
+stop)
+    echo "fakenews-comics: stop requested (containers are managed by appcenter)"
+    exit 0
+    ;;
+status)
+    # 容器缺失时先创建，创建失败视为异常
+    if ! ensure_containers_created; then
+        exit 1
+    fi
+    if is_docker_running; then
+        exit 0
+    else
+        exit 3
+    fi
+    ;;
+*)
+    echo "fakenews-comics: unknown action: $1" >"${TRIM_TEMP_LOGFILE}"
+    exit 1
+    ;;
+esac

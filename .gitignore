@@ -1,0 +1,34 @@
+# 依赖与构建产物
+node_modules/
+dist/
+server-go/bin/
+app/server-go/bin/
+.build/
+*.tsbuildinfo
+.tmp-*
+
+# 打包产物与工具链（fnpack 首次构建自动下载）
+*.fpk
+.toolchain/
+
+# 运行时数据（开发调试用）
+/data/
+.dev-data/
+*.db
+*.db-*
+
+# 测试产物（E2E 截图，单次可达 200M+）
+tools/_shots/
+# UI 留档截图（tools/_ui_shot.mjs 产出，可复跑）
+_shots/
+# 安卓性能探针的临时产物（tools/android_perf_*.py 的 --out 与 adb 截图）
+tmp_shot/
+
+# 系统杂项
+.DS_Store
+Thumbs.db
+*.log
+
+# 性能探针产物（可复跑，不入库）
+tools/_perf/
+.dev-comics/

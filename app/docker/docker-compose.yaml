@@ -1,0 +1,36 @@
+# 肥牛漫画容器编排文件
+# 由 cmd/main 以 `docker compose -p fakenews-comics` 的方式调用。
+#
+# 变量来源：这些变量由 install/config 回调写入 ${TRIM_APPDEST}/.env（及 docker/.env 副本）。
+# fnOS 自动 `docker compose -f <应用根>/docker/docker-compose.yaml up` 时 CWD=应用根，
+# compose 仅在应用根自动加载 .env，从而解析下方 ${...}。各变量均带缺省值兜底，
+# 即便 .env 缺失也不致产生非法挂载规范而安装失败。
+#   APP_PORT     宿主机端口（向导收集，缺省 2233）
+#   COMIC_ROOT   漫画目录（向导收集，挂载到容器内 /comics 只读；缺省 /comics）
+#   TRIM_PKGVAR  应用运行时数据目录（缺省 /var/lib/fakenews-comics）
+#   TZ           时区（缺省 Asia/Shanghai）
+
+services:
+  fakenews-comics:
+    container_name: fakenews-comics
+    # Go 版服务端：镜像由 app/server-go/Dockerfile 构建，内容只是「COPY 预编译二进制 + 前端产物」。
+    # 二进制在打包机交叉编译（CGO_ENABLED=0 GOOS=linux GOARCH=amd64），PDFium 以 WASM 内嵌、
+    # 图像缩放用纯 Go，故镜像从 scratch 起、不装任何运行时，现场构建 1~2 秒完成。
+    build:
+      context: ../server-go
+      dockerfile: Dockerfile
+    image: fakenews-comics:latest
+    ports:
+      # 宿主机端口来自安装向导（缺省回退 2233），容器内固定 3000
+      - "${APP_PORT:-2233}:3000"
+    environment:
+      APP_PORT: "3000"
+      DATA_DIR: /data
+      COMIC_ROOT: /comics
+      TZ: "${TZ:-Asia/Shanghai}"
+    restart: always
+    volumes:
+      # 漫画库：只读挂载，容器内统一可见路径 /comics（COMIC_ROOT 缺省回退 /comics）
+      - ${COMIC_ROOT:-/comics}:/comics:ro
+      # 应用数据：SQLite（db/fakenews-comics.db）+ 缩略图缓存（cache/）
+      - ${TRIM_PKGVAR:-/var/lib/fakenews-comics}/data:/data

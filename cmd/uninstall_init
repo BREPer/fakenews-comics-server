@@ -1,0 +1,21 @@
+#!/bin/bash
+# 卸载前回调：卸载向导（wizard/uninstall）展示前、应用文件删除前执行。
+# 显式停掉并移除容器 / 网络 / 卷，释放数据卷占用，避免后续 rm 数据目录时因容器仍在运行而失败，
+# 也避免 restart: always 的容器在卸载过程中被反复拉起。
+# 注：数据目录的实际删除在 uninstall_callback 中按用户选择执行。
+
+COMPOSE_DIR="$(dirname "${TRIM_APPDEST}/docker/docker-compose.yaml")"
+
+if [ -f "${COMPOSE_DIR}/docker-compose.yaml" ] && command -v docker >/dev/null 2>&1; then
+    cd "$COMPOSE_DIR" || true
+    # 加载持久化 .env 让 compose 变量解析正确
+    if [ -f "${COMPOSE_DIR}/.env" ]; then set -a; . "${COMPOSE_DIR}/.env"; set +a; fi
+    [ -n "${TRIM_PKGVAR:-}" ] && export TRIM_PKGVAR
+    [ -n "${TRIM_APPNAME:-}" ] && export TRIM_APPNAME
+    [ -n "${TRIM_APPDEST:-}" ] && export TRIM_APPDEST
+    # -v 仅移除 compose 创建的匿名卷；本应用数据用 bind mount（不影响宿主文件），只清容器/网络
+    docker compose -p "$TRIM_APPNAME" down -v 2>&1 \
+        || echo "docker compose down 未完成（应用中心会继续尝试停止容器）" >"${TRIM_TEMP_LOGFILE}"
+fi
+
+exit 0

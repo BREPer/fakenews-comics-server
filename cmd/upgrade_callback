@@ -1,0 +1,17 @@
+#!/bin/bash
+# 升级后回调：新版本文件就位后执行。
+# 数据库结构迁移由服务端启动时自动执行（db/migrations），此处无需处理。
+# 但需补写 compose 用的 .env（旧版本的安装回调未写，升级流程不会重跑 install_callback），
+# 否则 cmd/main 运行期 `docker compose up -d` 时 ${COMIC_ROOT} 解析不出来 → 挂载为空 → 目录路径没生效。
+
+COMPOSE_DIR="$(dirname "${TRIM_APPDEST}/docker/docker-compose.yaml")"
+ENV_FILE="${COMPOSE_DIR}/.env"
+{
+    echo "# 由升级回调自动生成，请勿手改；修改漫画目录/端口请在应用设置页操作"
+    echo "COMIC_ROOT=${COMIC_ROOT:-/comics}"
+    echo "APP_PORT=${APP_PORT:-2233}"
+    echo "TRIM_PKGVAR=${TRIM_PKGVAR}"
+    echo "TZ=${TZ:-$(cat /etc/timezone 2>/dev/null || echo 'Asia/Shanghai')}"
+} >"${ENV_FILE}" 2>/dev/null
+
+exit 0

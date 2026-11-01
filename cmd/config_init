@@ -1,0 +1,24 @@
+#!/bin/bash
+# 配置前回调：用户在应用设置页修改环境变量（APP_PORT / COMIC_ROOT）并确认前执行。
+# 退出码非 0 将阻止保存。这里做最基本的合法性校验。
+
+LOG="${TRIM_TEMP_LOGFILE:-/dev/null}"
+
+if [ -n "${APP_PORT:-}" ]; then
+    if ! [[ "${APP_PORT}" =~ ^[0-9]+$ ]] || [ "${APP_PORT}" -lt 1 ] || [ "${APP_PORT}" -gt 65535 ]; then
+        echo "APP_PORT 不是合法端口号: ${APP_PORT}" >"${LOG}"
+        exit 1
+    fi
+fi
+
+if [ -n "${COMIC_ROOT:-}" ]; then
+    case "${COMIC_ROOT}" in
+        /*) ;;
+        *)
+            echo "COMIC_ROOT 必须是绝对路径: ${COMIC_ROOT}" >"${LOG}"
+            exit 1
+            ;;
+    esac
+fi
+
+exit 0

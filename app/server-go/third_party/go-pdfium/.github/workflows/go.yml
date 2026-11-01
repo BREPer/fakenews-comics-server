@@ -1,0 +1,236 @@
+name: Go
+
+on:
+  push:
+    branches:
+      - main
+      - development
+  pull_request:
+    branches:
+      - main
+      - development
+
+jobs:
+  test-cgo:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, macos-latest, windows-latest ]
+        go: [ "1.26", "1.27" ]
+        pdfium: [ "4849", "8111" ]
+    env:
+      PDFIUM_EXPERIMENTAL_VERSION: "8111"
+      PDFIUM_EXPERIMENTAL_GO_VERSION: "1.27"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+      - name: Set up PDFium library (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo curl -L https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F${{ matrix.pdfium }}/pdfium-linux-x64.tgz -o pdfium-linux-x64.tgz && sudo mkdir /opt/pdfium && sudo tar -C /opt/pdfium -xvf pdfium-linux-x64.tgz
+          sudo rm pdfium-linux-x64.tgz
+          sudo cp ./.github/workflows/pdfium.pc /opt/pdfium/pdfium.pc
+      - name: Set up PDFium library (MacOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          sudo curl -L https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F${{ matrix.pdfium }}/pdfium-mac-arm64.tgz -o pdfium-mac-arm64.tgz && sudo mkdir /opt/pdfium && sudo tar -C /opt/pdfium -xvf pdfium-mac-arm64.tgz
+          sudo rm pdfium-mac-arm64.tgz
+          sudo cp ./.github/workflows/pdfium.pc /opt/pdfium/pdfium.pc
+      - name: Set up PDFium library (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          curl -L https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F${{ matrix.pdfium }}/pdfium-win-x64.tgz -o pdfium-win-x64.tgz
+          mkdir -p D:\opt\pdfium
+          tar -C D:\opt\pdfium -xvf pdfium-win-x64.tgz
+          rm pdfium-win-x64.tgz
+          mkdir D:\opt\pkgconfig
+          cp ./.github/workflows/pdfium-windows.pc D:\opt\pkgconfig\pdfium.pc
+      - name: Test all packages (Linux & MacOS)
+        if: matrix.os == 'ubuntu-latest' || matrix.os == 'macos-latest'
+        run: |
+          export LD_LIBRARY_PATH="/opt/pdfium/lib"
+          export PKG_CONFIG_PATH="/opt/pdfium"
+          go test -race -timeout 45m `go list ./... | grep -v "webassembly\|experimental"` -exec "env DYLD_LIBRARY_PATH=/opt/pdfium/lib" -v
+      - name: Test all packages (Linux & MacOS) - Experimental
+        if: (matrix.os == 'ubuntu-latest' || matrix.os == 'macos-latest') && matrix.pdfium == env.PDFIUM_EXPERIMENTAL_VERSION
+        run: |
+          export LD_LIBRARY_PATH="/opt/pdfium/lib"
+          export PKG_CONFIG_PATH="/opt/pdfium"
+          go test -race -timeout 45m `go list ./... | grep -v "webassembly\|experimental"` -tags pdfium_experimental -exec "env DYLD_LIBRARY_PATH=/opt/pdfium/lib" -v
+      - name: Test all packages (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          $env:PKG_CONFIG_PATH = 'D:\opt\pkgconfig'
+          $env:Path += ";D:\opt\pdfium\bin"
+          go test -race -timeout 45m $(go list ./... | grep -v "webassembly\|experimental") -v
+      - name: Test all packages (Windows) - Experimental
+        if: matrix.os == 'windows-latest' && matrix.pdfium == env.PDFIUM_EXPERIMENTAL_VERSION
+        run: |
+          $env:PKG_CONFIG_PATH = 'D:\opt\pkgconfig'
+          $env:Path += ";D:\opt\pdfium\bin"
+          go test -race -timeout 45m $(go list ./... | grep -v "webassembly\|experimental") -tags pdfium_experimental -v
+      - name: Test implementation for coverage
+        if: matrix.os == 'ubuntu-latest' && matrix.go == env.PDFIUM_EXPERIMENTAL_GO_VERSION && matrix.pdfium == env.PDFIUM_EXPERIMENTAL_VERSION
+        run: |
+          export LD_LIBRARY_PATH="/opt/pdfium/lib"
+          export PKG_CONFIG_PATH="/opt/pdfium"
+          go test -timeout 30m ./internal/implementation_cgo ./internal/implementation_webassembly -coverprofile=coverage.out -covermode=atomic -tags pdfium_experimental -v
+      - name: Archive code coverage results
+        if: matrix.os == 'ubuntu-latest' && matrix.go == env.PDFIUM_EXPERIMENTAL_GO_VERSION && matrix.pdfium == env.PDFIUM_EXPERIMENTAL_VERSION
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-coverage-report
+          path: ./coverage.out
+      - name: Upload coverage to Codecov
+        if: matrix.os == 'ubuntu-latest' && matrix.go == env.PDFIUM_EXPERIMENTAL_GO_VERSION && matrix.pdfium == env.PDFIUM_EXPERIMENTAL_VERSION
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.out
+          token: ${{ secrets.CODECOV_TOKEN }}
+      - name: Archive render results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cgo-renders-${{ matrix.os }}-${{ matrix.go }}-${{ matrix.pdfium }}
+          path: |
+            shared_tests/testdata/*.jpg
+            shared_tests/testdata/*.png
+  test-webassembly:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, macos-latest, windows-latest ]
+        go: [ "1.26", "1.27" ]
+        wazero_interpreter: [ "0", "1" ]
+    env:
+      PDFIUM_EXPERIMENTAL_GO_VERSION: "1.27"
+      CGO_ENABLED: "0"
+      WAZERO_INTERPRETER: ${{ matrix.wazero_interpreter }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+      - name: Test all packages
+        run: |
+          go test -timeout 30m ./internal/implementation_webassembly -v
+          go test -timeout 30m ./webassembly -v
+      - name: Test all packages - Experimental (non-Windows)
+        if: matrix.os == 'ubuntu-latest' || matrix.os == 'macos-latest'
+        run: |
+          go test -timeout 30m ./internal/implementation_webassembly -tags pdfium_experimental -v
+          go test -timeout 30m ./webassembly -tags pdfium_experimental -v
+      - name: Test all packages - Experimental (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          go test -timeout 30m ./internal/implementation_webassembly -tags pdfium_experimental -v
+          go test -timeout 30m ./webassembly -tags pdfium_experimental -v
+      - name: Archive render results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: webassembly-renders-${{ matrix.os }}-${{ matrix.go }}-interpreter${{ matrix.wazero_interpreter }}
+          path: |
+            shared_tests/testdata/*.jpg
+            shared_tests/testdata/*.png
+  test-wazy:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, macos-latest, windows-latest ]
+        wazy_interpreter: [ "0", "1" ]
+    env:
+      CGO_ENABLED: "0"
+      WAZY_INTERPRETER: ${{ matrix.wazy_interpreter }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+      - name: Test the wazy backend
+        run: |
+          go test -timeout 30m ./experimental/wazy -v
+      - name: Test the wazy backend - Experimental
+        run: |
+          go test -timeout 30m ./experimental/wazy -tags pdfium_experimental -v
+      - name: Archive render results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wazy-renders-${{ matrix.os }}-interpreter${{ matrix.wazy_interpreter }}
+          path: |
+            shared_tests/testdata/*.jpg
+            shared_tests/testdata/*.png
+  test-wago:
+    # The experimental wago backend only works on amd64 for now, see the
+    # README, so it is a single Linux job instead of a full matrix.
+    env:
+      CGO_ENABLED: "0"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+      - name: Test the wago backend
+        run: |
+          go test -timeout 30m ./experimental/wago -v
+      - name: Test the wago backend - Experimental
+        run: |
+          go test -timeout 30m ./experimental/wago -tags pdfium_experimental -v
+      - name: Archive render results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wago-renders
+          path: |
+            shared_tests/testdata/*.jpg
+            shared_tests/testdata/*.png
+  test-webassembly-race:
+    # Go's race detector needs a cgo-capable toolchain to link its sanitizer
+    # runtime, so it can't run under the CGO_ENABLED=0 matrix above. Kept as
+    # a single dedicated job (not a full OS/Go matrix) to avoid multiplying
+    # CI time, since -race roughly doubles test runtime.
+    env:
+      CGO_ENABLED: "1"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+      - name: Test all packages with -race
+        run: |
+          go test -race -timeout 45m ./internal/implementation_webassembly -v
+          go test -race -timeout 45m ./webassembly -v
+          go test -race -timeout 45m ./experimental/wazy -v
+          go test -race -timeout 45m ./experimental/wago -v
+      - name: Test all packages with -race - Experimental
+        run: |
+          go test -race -timeout 45m ./internal/implementation_webassembly -tags pdfium_experimental -v
+          go test -race -timeout 45m ./webassembly -tags pdfium_experimental -v
+          go test -race -timeout 45m ./experimental/wazy -tags pdfium_experimental -v
+          go test -race -timeout 45m ./experimental/wago -tags pdfium_experimental -v
+      - name: Archive render results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: webassembly-renders-race
+          path: |
+            shared_tests/testdata/*.jpg
+            shared_tests/testdata/*.png

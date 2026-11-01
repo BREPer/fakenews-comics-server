@@ -1,0 +1,40 @@
+#!/bin/bash
+# 安装前回调：在用户确认安装前执行。
+# 退出码非 0 将中断安装流程。
+# 检查项：Docker 可用性、端口合法性、漫画目录是否为绝对路径。
+#
+# 注意：APP_PORT / COMIC_ROOT 由安装向导（wizard/install）收集后注入。
+
+LOG="${TRIM_TEMP_LOGFILE:-/dev/null}"
+
+# 1) Docker 必须可用（本应用为 Docker 类应用）
+if ! command -v docker >/dev/null 2>&1; then
+    echo "未检测到 Docker，肥牛漫画需要 Docker 环境运行" >"${LOG}"
+    exit 1
+fi
+
+# 2) 端口合法性（仅在向导已注入时检查）
+if [ -n "${APP_PORT:-}" ]; then
+    if ! [[ "${APP_PORT}" =~ ^[0-9]+$ ]] || [ "${APP_PORT}" -lt 1 ] || [ "${APP_PORT}" -gt 65535 ]; then
+        echo "APP_PORT 不是合法端口号: ${APP_PORT}" >"${LOG}"
+        exit 1
+    fi
+fi
+
+# 3) 漫画目录必须是绝对路径（容器内固定挂载到 /comics）
+if [ -n "${COMIC_ROOT:-}" ]; then
+    case "${COMIC_ROOT}" in
+        /*) ;;
+        *)
+            echo "COMIC_ROOT 必须是绝对路径: ${COMIC_ROOT}" >"${LOG}"
+            exit 1
+            ;;
+    esac
+fi
+
+# 4) 漫画目录不存在时仅警告，不阻断安装（用户可能稍后创建/挂载）
+if [ -n "${COMIC_ROOT:-}" ] && [ ! -d "${COMIC_ROOT}" ]; then
+    echo "提示：漫画目录 ${COMIC_ROOT} 当前不存在，安装后请创建该目录并放入漫画" >"${LOG}"
+fi
+
+exit 0

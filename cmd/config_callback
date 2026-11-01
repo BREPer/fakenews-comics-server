@@ -1,0 +1,35 @@
+#!/bin/bash
+# 配置后回调：用户保存新的环境变量后执行。
+# fnOS 随后会用新配置重启应用（重新执行 cmd/main）。
+# 这里主动重建一次容器，确保新的端口映射 / 漫画目录挂载立即生效
+# （fnOS 重启时 cmd/main 的 `docker compose up -d` 检测到配置变化也会自动重建）。
+
+COMPOSE_DIR="$(dirname "${TRIM_APPDEST}/docker/docker-compose.yaml")"
+
+# 用户在设置页修改了漫画目录 / 端口：先更新持久化 .env，再重建容器让新挂载/映射生效。
+if [ -f "${COMPOSE_DIR}/.env" ]; then
+    # 保留其中的 TRIM_PKGVAR / TZ，仅覆盖可能变化的 COMIC_ROOT / APP_PORT
+    TZ_LINE="$(grep '^TZ=' "${COMPOSE_DIR}/.env" 2>/dev/null)"
+    PKGVAR_LINE="$(grep '^TRIM_PKGVAR=' "${COMPOSE_DIR}/.env" 2>/dev/null)"
+    {
+        echo "# 由配置回调自动更新，请勿手改"
+        echo "COMIC_ROOT=${COMIC_ROOT:-/comics}"
+        echo "APP_PORT=${APP_PORT:-2233}"
+        echo "${PKGVAR_LINE}"
+        echo "${TZ_LINE}"
+    } >"${COMPOSE_DIR}/.env.tmp" 2>/dev/null && mv -f "${COMPOSE_DIR}/.env.tmp" "${COMPOSE_DIR}/.env"
+fi
+
+if [ -d "${COMPOSE_DIR}" ]; then
+    cd "${COMPOSE_DIR}" || exit 0
+    # 先加载持久化 .env，再让 fnOS 运行期标准变量（TRIM_*）覆盖，避免路径陈旧
+    if [ -f "${COMPOSE_DIR}/.env" ]; then set -a; . "${COMPOSE_DIR}/.env"; set +a; fi
+    [ -n "${TRIM_PKGVAR:-}" ] && export TRIM_PKGVAR
+    [ -n "${TRIM_APPNAME:-}" ] && export TRIM_APPNAME
+    [ -n "${TRIM_APPDEST:-}" ] && export TRIM_APPDEST
+    if ! docker compose -p "$TRIM_APPNAME" up -d --force-recreate 2>&1; then
+        echo "容器重建失败，将在应用重启时重试" >"${TRIM_TEMP_LOGFILE}"
+    fi
+fi
+
+exit 0

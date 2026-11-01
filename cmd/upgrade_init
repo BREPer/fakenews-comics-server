@@ -1,0 +1,20 @@
+#!/bin/bash
+# 升级前回调：新版本文件覆盖前执行。
+# fnOS 会先停止旧容器再执行升级，因此这里一般无需手动停容器。
+# 升级前备份 SQLite 主库，万一新版本迁移失败可手动恢复。
+#
+# 备份文件：${TRIM_PKGVAR}/data/db/fakenews-comics.db.bak-<时间戳>
+
+DB_FILE="${TRIM_PKGVAR}/data/db/fakenews-comics.db"
+
+if [ -f "${DB_FILE}" ]; then
+    cp "${DB_FILE}" "${DB_FILE}.bak-$(date +%Y%m%d%H%M%S)"
+    echo "Database backed up before upgrade."
+else
+    echo "No existing database to back up (fresh install)."
+fi
+
+# 只保留最近 3 个备份，避免长期升级后堆积
+ls -1t "${DB_FILE}".bak-* 2>/dev/null | tail -n +4 | xargs -r rm -f
+
+exit 0

@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#161923" />
+    <!-- 应用图标与 fpk 图标同源（均由 tools/gen_icons.py 从 tools/logo_source.png 生成） -->
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <!--
+      PWA：manifest 让「添加到主屏 / 安装应用」拿到正确的名字、图标与独立窗口，
+      iOS 那两个 apple-mobile-web-app-* 是 Safari 自己的老写法（它不读 manifest 的
+      display 字段），缺了会以浏览器界面打开。
+    -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="肥牛漫画" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <title>肥牛漫画</title>
+    <!--
+      首帧主题：主 CSS 与 JS 都在后面才到，慢网（弱信号/冷启动）下会先白闪一下再变深色。
+      这里在 <head> 里同步读一次 localStorage 定下背景与配色方案，约 300 字节、零额外请求。
+      main.tsx 的 applyTheme 会再跑一次，逻辑一致且幂等。
+    -->
+    <script>
+      (function () {
+        var dark = false;
+        try {
+          // 缺省浅色（与 SETTINGS_DEFAULTS.theme / settingDefaults 一致）
+          var t = localStorage.getItem('fakenews-theme') || 'light';
+          dark = t === 'system' ? window.matchMedia('(prefers-color-scheme: dark)').matches : t !== 'light';
+        } catch (e) { /* 隐私模式：按浅色兜底 */ }
+        var root = document.documentElement;
+        root.classList.toggle('dark', dark);
+        // 高亮色也必须首帧定下来，否则启动壳是橙的、主界面一上来变蓝，会看到一次闪色
+        // 旧值（blue/gray/prussian）在这里一并映射，与 theme.ts 的 normalizeAccent 保持一致
+        try {
+          var a = localStorage.getItem('fakenews-accent');
+          if (a === 'blue' || a === 'prussian') a = 'sora';
+          else if (a === 'gray') a = 'bean';
+          else if (a === 'orange') a = 'amber';
+          if (a === 'sora' || a === 'bean') root.setAttribute('data-accent', a);
+        } catch (e) { /* 同上，忽略 */ }
+        var bg = dark ? '#161923' : '#eef1f6';
+        root.style.backgroundColor = bg;
+        root.style.colorScheme = dark ? 'dark' : 'light';
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute('content', bg);
+      })();
+    </script>
+    <!--
+      启动壳：JS 到达前先摆一个与首页同构的骨架（不请求任何资源）。
+      慢网下用户的感知从「白屏/转圈」变成「页面已经在展开」，也顺带消除布局跳动。
+
+      这里有两份「同一个壳」，各管一段，改结构必须同时改：
+        1) 本文件下方 #root 里的静态标记 —— 管「JS 到达前」（1 Mbps 下要顶 3.9 秒）
+        2) src/components/layout/BootShell.tsx —— 管「React 接管后、登录检查结束前」
+      样式只有本文件这一个内联 <style>，**不要搬进 index.css**：
+      CSS 包在 1 Mbps 下要 1.1 秒才到，写在包里等于首屏没有壳。
+    -->
+    <style>
+      html, body { margin: 0; }
+      body { background: inherit; }
+      #root { min-height: 100dvh; }
+      .boot {
+        --sk: #323748;
+        --sk-hi: rgba(255, 255, 255, 0.07);
+        display: flex; flex-direction: column; gap: 16px;
+        padding: max(16px, env(safe-area-inset-top)) 16px 16px;
+      }
+      html:not(.dark) .boot { --sk: #dfe4ec; --sk-hi: rgba(255, 255, 255, 0.85); }
+      .boot .row { display: flex; align-items: center; gap: 10px; }
+      /* 启动壳的标记固定品牌橙：它就是真 logo 的替身，跟着高亮色变反而会在挂载瞬间闪一次色 */
+      .boot .mark {
+        width: 32px; height: 32px; border-radius: 22%;
+        background: linear-gradient(140deg, #fb923c, #ea580c);
+      }
+      .boot .name { font: 600 15px/1.2 system-ui, -apple-system, "PingFang SC", sans-serif; letter-spacing: 0.02em; }
+      html.dark .boot .name { color: #edf0f6; }
+      html:not(.dark) .boot .name { color: #1f2937; }
+      .boot .sk { position: relative; overflow: hidden; border-radius: 8px; background: var(--sk); }
+      .boot .sk::after {
+        content: ''; position: absolute; inset: 0;
+        background: linear-gradient(90deg, transparent, var(--sk-hi), transparent);
+        transform: translateX(-100%);
+        animation: boot-shimmer 1.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+      }
+      @keyframes boot-shimmer { to { transform: translateX(100%); } }
+      .boot .search { height: 44px; border-radius: 12px; }
+      .boot .strip { display: flex; gap: 12px; }
+      .boot .strip .sk { width: 112px; height: 149px; }
+      .boot .grid { display: grid; gap: 12px; grid-template-columns: repeat(3, 1fr); }
+      @media (min-width: 640px) { .boot .grid { grid-template-columns: repeat(4, 1fr); } }
+      @media (min-width: 1024px) { .boot .grid { grid-template-columns: repeat(6, 1fr); } }
+      .boot .grid .sk { aspect-ratio: 3 / 4; border-radius: 10px; }
+      @media (prefers-reduced-motion: reduce) {
+        .boot .sk::after { animation: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <div class="boot" aria-hidden="true">
+        <div class="row">
+          <div class="mark"></div>
+          <span class="name">肥牛漫画</span>
+        </div>
+        <div class="sk search"></div>
+        <div class="strip">
+          <div class="sk"></div>
+          <div class="sk"></div>
+        </div>
+        <div class="grid">
+          <div class="sk"></div><div class="sk"></div><div class="sk"></div>
+          <div class="sk"></div><div class="sk"></div><div class="sk"></div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

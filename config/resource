@@ -1,0 +1,20 @@
+{
+    "docker-project": {
+        "projects": [
+            {
+                "name": "fakenews-comics",
+                "path": "docker"
+            }
+        ]
+    },
+    "data-share": {
+        "shares": [
+            {
+                "name": "fakenews-comics"
+            },
+            {
+                "name": "fakenews-comics/data"
+            }
+        ]
+    }
+}

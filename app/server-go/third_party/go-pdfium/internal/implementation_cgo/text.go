@@ -1,0 +1,284 @@
+package implementation_cgo
+
+// #cgo pkg-config: pdfium
+// #include "fpdfview.h"
+// #include "fpdf_text.h"
+import "C"
+
+import (
+	"bytes"
+	"errors"
+	"io"
+	"math"
+
+	"github.com/klippa-app/go-pdfium/internal/textextract"
+	"github.com/klippa-app/go-pdfium/references"
+	"github.com/klippa-app/go-pdfium/requests"
+	"github.com/klippa-app/go-pdfium/responses"
+
+	"github.com/google/uuid"
+	"golang.org/x/text/encoding/unicode"
+	"golang.org/x/text/transform"
+)
+
+func (p *PdfiumImplementation) registerTextPage(attachment C.FPDF_TEXTPAGE, documentHandle *DocumentHandle) *TextPageHandle {
+	ref := uuid.New()
+	handle := &TextPageHandle{
+		handle:      attachment,
+		nativeRef:   references.FPDF_TEXTPAGE(ref.String()),
+		documentRef: documentHandle.nativeRef,
+	}
+
+	documentHandle.textPageRefs[handle.nativeRef] = handle
+	p.textPageRefs[handle.nativeRef] = handle
+
+	return handle
+}
+
+func (p *PdfiumImplementation) registerPageLink(pageLink C.FPDF_PAGELINK, documentHandle *DocumentHandle) *PageLinkHandle {
+	ref := uuid.New()
+	handle := &PageLinkHandle{
+		handle:      pageLink,
+		nativeRef:   references.FPDF_PAGELINK(ref.String()),
+		documentRef: documentHandle.nativeRef,
+	}
+
+	documentHandle.pageLinkRefs[handle.nativeRef] = handle
+	p.pageLinkRefs[handle.nativeRef] = handle
+
+	return handle
+}
+
+// GetPageText returns the text of a page
+func (p *PdfiumImplementation) GetPageText(request *requests.GetPageText) (*responses.GetPageText, error) {
+	p.Lock()
+	defer p.Unlock()
+
+	pageHandle, err := p.loadPage(request.Page)
+	if err != nil {
+		return nil, err
+	}
+
+	textPage := C.FPDFText_LoadPage(pageHandle.handle)
+	charsInPage := int(C.FPDFText_CountChars(textPage))
+	charData := make([]rune, 0, charsInPage)
+	for i := 0; i < charsInPage; i++ {
+		uniChar := C.FPDFText_GetUnicode(textPage, C.int(i))
+		if uniChar != 0 {
+			charData = append(charData, rune(uniChar))
+		}
+	}
+	C.FPDFText_ClosePage(textPage)
+
+	return &responses.GetPageText{
+		Page: pageHandle.index,
+		Text: string(charData),
+	}, nil
+}
+
+// GetPageTextStructured returns the text of a page in a structured way
+func (p *PdfiumImplementation) GetPageTextStructured(request *requests.GetPageTextStructured) (*responses.GetPageTextStructured, error) {
+	p.Lock()
+	defer p.Unlock()
+
+	pageHandle, err := p.loadPage(request.Page)
+	if err != nil {
+		return nil, err
+	}
+
+	pointToPixelRatio := float64(0)
+	if request.PixelPositions.Calculate {
+		if request.PixelPositions.DPI > 0 {
+			_, _, _, pointToPixelRatio, err = p.getPageSizeInPixels(request.Page, request.PixelPositions.DPI)
+			if err != nil {
+				return nil, err
+			}
+		} else if request.PixelPositions.Width == 0 && request.PixelPositions.Height == 0 {
+			return nil, errors.New("no DPI or resolution given to calculate pixel positions")
+		} else {
+			_, _, _, ratio, err := p.calculateRenderImageSize(request.Page, request.PixelPositions.Width, request.PixelPositions.Height)
+			if err != nil {
+				return nil, err
+			}
+			pointToPixelRatio = ratio
+		}
+	}
+
+	resp := &responses.GetPageTextStructured{
+		Page:              pageHandle.index,
+		Chars:             []*responses.GetPageTextStructuredChar{},
+		Rects:             []*responses.GetPageTextStructuredRect{},
+		PointToPixelRatio: pointToPixelRatio,
+	}
+
+	textPage := C.FPDFText_LoadPage(pageHandle.handle)
+	charsInPage := C.FPDFText_CountChars(textPage)
+
+	collectChars := request.Mode == "" || request.Mode == requests.GetPageTextStructuredModeChars || request.Mode == requests.GetPageTextStructuredModeBoth
+	collectRects := request.Mode == "" || request.Mode == requests.GetPageTextStructuredModeRects || request.Mode == requests.GetPageTextStructuredModeBoth
+
+	// Rect text is computed on the Go side from the per-char data (see
+	// internal/textextract): FPDFText_GetBoundedText re-scans every char on
+	// the page per call, which makes extracting all rects O(chars × rects).
+	var extractChars []textextract.Char
+	if collectRects {
+		extractChars = make([]textextract.Char, 0, charsInPage)
+	}
+
+	if collectChars || collectRects {
+		for i := 0; i < int(charsInPage); i++ {
+			left := C.double(0)
+			top := C.double(0)
+			right := C.double(0)
+			bottom := C.double(0)
+			C.FPDFText_GetCharBox(textPage, C.int(i), &left, &right, &bottom, &top)
+			uniChar := C.FPDFText_GetUnicode(textPage, C.int(i))
+
+			if collectRects {
+				originX := C.double(0)
+				originY := C.double(0)
+				C.FPDFText_GetCharOrigin(textPage, C.int(i), &originX, &originY)
+
+				extractChars = append(extractChars, textextract.Char{
+					Left:    float32(left),
+					Bottom:  float32(bottom),
+					Right:   float32(right),
+					Top:     float32(top),
+					OriginY: float32(originY),
+					Unicode: rune(uniChar),
+				})
+			}
+
+			if !collectChars {
+				continue
+			}
+
+			angle := C.FPDFText_GetCharAngle(textPage, C.int(i))
+			text := ""
+			if uniChar != 0 {
+				text = string([]rune{rune(uniChar)})
+			}
+
+			char := &responses.GetPageTextStructuredChar{
+				Text:  text,
+				Angle: float64(angle),
+				PointPosition: responses.CharPosition{
+					Left:   float64(left),
+					Top:    float64(top),
+					Right:  float64(right),
+					Bottom: float64(bottom),
+				},
+			}
+
+			if request.CollectFontInformation {
+				char.FontInformation = p.getFontInformation(textPage, i)
+			}
+
+			if request.PixelPositions.Calculate {
+				char.PixelPosition = convertPointPositions(char.PointPosition, pointToPixelRatio)
+
+				if char.FontInformation != nil {
+					sizeInPixels := int(math.Round(char.FontInformation.Size * pointToPixelRatio))
+					char.FontInformation.SizeInPixels = &sizeInPixels
+				}
+			}
+
+			resp.Chars = append(resp.Chars, char)
+		}
+	}
+
+	if collectRects {
+		rectsCount := C.FPDFText_CountRects(textPage, C.int(0), C.int(charsInPage))
+
+		rects := make([]textextract.Rect, int(rectsCount))
+		for i := range rects {
+			left := C.double(0)
+			top := C.double(0)
+			right := C.double(0)
+			bottom := C.double(0)
+
+			C.FPDFText_GetRect(textPage, C.int(i), &left, &top, &right, &bottom)
+
+			// PDFium computes the rects in float32, the round-trip is lossless.
+			rects[i] = textextract.Rect{Left: float32(left), Top: float32(top), Right: float32(right), Bottom: float32(bottom)}
+		}
+
+		extractor := textextract.New(extractChars)
+
+		// All chars of a rect share one text object and thus one font, so the
+		// first char of the rect gives the font of the rect.
+		var firstChars []int
+		if request.CollectFontInformation {
+			firstChars = extractor.FirstCharIndices(rects)
+		}
+
+		for i, rect := range rects {
+			char := &responses.GetPageTextStructuredRect{
+				Text: extractor.TextInRect(rect.Left, rect.Top, rect.Right, rect.Bottom),
+				PointPosition: responses.CharPosition{
+					Left:   float64(rect.Left),
+					Top:    float64(rect.Top),
+					Right:  float64(rect.Right),
+					Bottom: float64(rect.Bottom),
+				},
+			}
+
+			if request.CollectFontInformation {
+				// When no char is found the index is -1 and PDFium reports
+				// zero values, which is what this always returned in that case.
+				char.FontInformation = p.getFontInformation(textPage, firstChars[i])
+			}
+
+			if request.PixelPositions.Calculate {
+				char.PixelPosition = convertPointPositions(char.PointPosition, pointToPixelRatio)
+				if char.FontInformation != nil {
+					sizeInPixels := int(math.Round(char.FontInformation.Size * pointToPixelRatio))
+					char.FontInformation.SizeInPixels = &sizeInPixels
+				}
+			}
+
+			resp.Rects = append(resp.Rects, char)
+		}
+	}
+
+	C.FPDFText_ClosePage(textPage)
+
+	return resp, nil
+}
+
+func (p *PdfiumImplementation) transformUTF16LEToUTF8(charData []byte) (string, error) {
+	// PDFium returns UTF-16LE without a byte order mark, so don't look for one.
+	pdf16le := unicode.UTF16(unicode.LittleEndian, unicode.IgnoreBOM)
+	unicodeReader := transform.NewReader(bytes.NewReader(charData), pdf16le.NewDecoder())
+
+	decoded, err := io.ReadAll(unicodeReader)
+	if err != nil {
+		return "", err
+	}
+
+	// Remove NULL terminator.
+	decoded = bytes.TrimSuffix(decoded, []byte("\x00"))
+
+	return string(decoded), nil
+}
+
+func (p *PdfiumImplementation) transformUTF8ToUTF16LE(text string) ([]byte, error) {
+	// PDFium takes UTF-16LE without a byte order mark, so a leading U+FEFF is kept.
+	pdf16le := unicode.UTF16(unicode.LittleEndian, unicode.IgnoreBOM)
+
+	output := &bytes.Buffer{}
+	unicodeWriter := transform.NewWriter(output, pdf16le.NewEncoder())
+	unicodeWriter.Write([]byte(text))
+	unicodeWriter.Close()
+
+	return output.Bytes(), nil
+}
+
+func convertPointPositions(pointPositions responses.CharPosition, ratio float64) *responses.CharPosition {
+	return &responses.CharPosition{
+		Left:   math.Round(pointPositions.Left * ratio),
+		Top:    math.Round(pointPositions.Top * ratio),
+		Right:  math.Round(pointPositions.Right * ratio),
+		Bottom: math.Round(pointPositions.Bottom * ratio),
+	}
+}

@@ -1,0 +1,21 @@
+#!/bin/bash
+# 卸载后回调：应用文件删除后执行。
+# 根据卸载向导（wizard/uninstall）用户的选择决定是否删除数据：
+#   wizard_data_action = keep   保留数据（默认，重装可恢复）
+#   wizard_data_action = delete 删除全部数据（不可恢复）
+#
+# wizard_data_action 环境变量由 fnOS 根据向导结果注入，变量名全小写。
+# ${VAR:?} 写法：变量为空时直接报错退出，防止 rm -rf 误伤根目录。
+
+if [ "${wizard_data_action:-keep}" = "delete" ]; then
+    echo "Deleting application data (database, thumbnails, progress, favorites)..."
+    # TRIM_PKGVAR 是运行时数据目录（必存在，保留 :? 防止误删根）；
+    # TRIM_PKGHOME 仅在声明 home 用途时注入，本应用未声明，未注入则为空，静默跳过（避免 :? 导致卸载失败）。
+    rm -rf "${TRIM_PKGVAR:?}" || echo "部分数据删除失败，请手动清理 ${TRIM_PKGVAR}" >"${TRIM_TEMP_LOGFILE}"
+    rm -rf "${TRIM_PKGHOME:-}" || true
+    echo "Application data deleted."
+else
+    echo "Keeping application data for future reinstallation."
+fi
+
+exit 0

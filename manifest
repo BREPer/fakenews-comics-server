@@ -1,0 +1,16 @@
+appname               = fakenews-comics
+version               = 2.1.0
+display_name          = 肥牛漫画
+desc                  = 飞牛 NAS 漫画阅读器：扫描本地漫画库（cbz / zip / 文件夹 / pdf / epub），封面网格、题材分类与标签编辑、搜索、四种翻页模式（含拆分双页与双指缩放）沉浸阅读、阅读进度记忆，手机 / 平板 / 桌面全端适配
+platform              = x86
+source                = thirdparty
+maintainer            = brep
+maintainer_url        = https://github.com/BREPer/fakenews-comics-server
+distributor           = brep
+distributor_url       = https://github.com/BREPer/fakenews-comics-server
+os_min_version        = 1.1.8
+desktop_uidir         = ui
+desktop_applaunchname = fakenews-comics.Application
+# 必须为 false：应用需要读取用户漫画目录，须允许用户在设置页授权文件夹访问
+# （true 会隐藏授权入口，导致“无法获取文件夹访问权限”）
+disable_authorization_path = false

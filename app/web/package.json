@@ -1,0 +1,31 @@
+{
+  "name": "fakenews-comics-web",
+  "version": "2.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build && node ../../tools/precompress.mjs dist",
+    "preview": "vite preview",
+    "typecheck": "tsc -b --noEmit",
+    "check:contract": "node ../../tools/contract_check.mjs"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.59.0",
+    "lucide-react": "^0.446.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-router-dom": "^6.26.2"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "autoprefixer": "^10.4.20",
+    "oxc-transform-react": "^0.152.0",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.13",
+    "typescript": "^5.6.2",
+    "vite": "^8.3.5"
+  }
+}
