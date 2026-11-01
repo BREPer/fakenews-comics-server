@@ -273,11 +273,20 @@ docker inspect fakenews-comics --format '{{range .Mounts}}{{.Source}} -> {{.Dest
 
 ## 阅读进度模型
 
-- **全书进度**（`reading_progress`）：每部一条，记录当前章节/页码/百分比，供「继续阅读」与阅读记录
-- **分章进度**（`chapter_progress`）：每章一条，用于详情页章节列表的「已读 / 阅读百分比」标记；
-  到达该章最后一页即视为读完（100%），重读不会回退已读状态
-- 文件被替换（mtime 变化）后重扫会**清空该漫画的分章标记**（章 id 基于序号，避免错位）
-- 「重置进度」会同时清空全书进度与分章标记
+只有一张表、一部漫画一行（`reading_progress`）：
+
+| 字段 | 含义 |
+|---|---|
+| `chapter_id` / `chapter_index` | 当前读到哪一章 |
+| `page_index` / `page_count` | 章内第几页 / 该章多少页 |
+| `percent` | 全书进度（已读章页数累计 + 章内页码，除以总页数） |
+| `updated_at` | 「继续阅读」与阅读记录按它排序 |
+
+- **只记「当前正在读的那一章」**：不做分章已读状态（曾经的 `chapter_progress` 表已移除，
+  `schema.sql` 里留了一句 `DROP TABLE` 清理老库）。所以章节列表只显示页数，当前章额外标「在读」
+- 翻开就该记：翻页 / 滚动即写；只看封面和详情不算
+- 文件被替换（mtime 变化）后重扫，该漫画按路径失配处理（级联清理进度）
+- 「重置进度」清空这一行
 
 ## 已知边界
 
@@ -390,7 +399,7 @@ Range 语法非法时按 RFC 7233 **忽略 Range 返回 200**。
 |---|---|---|
 | GET | `/api/comics` | 列表（q/library/status/format/tag/sort/order 分页） |
 | GET | `/api/comics/facets` | 筛选面（格式/标签/状态计数） |
-| GET | `/api/comics/:id` | 详情 + 章列表（含每章已读百分比 `percent` / `read`） |
+| GET | `/api/comics/:id` | 详情 + 章列表（`id` / `index` / `title` / `pageCount` / `sizeBytes`；不含已读状态） |
 | PUT | `/api/comics/:id` | 编辑元数据（编辑后重扫不覆盖） |
 | POST | `/api/comics/:id/scan` | **单部重扫**（替换文件后局部刷新，不扫全库） |
 | GET | `/api/comics/:id/cover?w=` | 封面（自定义优先） |
@@ -400,18 +409,21 @@ Range 语法非法时按 RFC 7233 **忽略 Range 返回 200**。
 | GET | `/api/comics/:cid/chapters/:ch/pages/:i` | 单页图流（Range 206；`?quality=standard` 缩略图） |
 | GET/PUT | `/api/progress` | 阅读进度（看封面不记录，实际翻页才记） |
 | POST | `/api/progress/:id/reset` | 重置进度 |
-| GET/POST/DELETE | `/api/favorites` | 收藏 |
+| GET/POST/DELETE | `/api/favorites` | 收藏（也接受 `/api/favorites/:comicId` 形式） |
 | GET/DELETE | `/api/history` | 阅读记录 |
 | GET/POST/PATCH/DELETE | `/api/libraries` | 漫画库 CRUD |
+| GET | `/api/libraries/browse?path=` | 服务端目录浏览（新建库选路径、上传选目标用） |
+| POST | `/api/libraries/:id/upload` | 上传漫画（章节型解压入库，单篇型原样落盘） |
 | POST | `/api/libraries/reorder` | 库排序 |
 | GET/POST | `/api/scan` | 扫描状态 / 触发扫描（默认增量：mtime 未变跳过；`{full:true}` 强制全量重解析） |
-| GET/PUT | `/api/settings` | 阅读设置（服务端持久化） |
+| GET/PUT | `/api/settings` | 服务端设置（只存 L1 三项；阅读/外观偏好按设备存，见下） |
+| GET/POST | `/api/settings/legacy-prefs` | 升级迁移用：读 / 消费老版本遗留在服务端的偏好 |
 | GET | `/api/cache/stats` | 缓存用量（总量/上限/文件数/分类占用） |
 | POST | `/api/cache/clear` | 清空缩略图与封面缓存 |
 | POST | `/api/cache/evict` | 按当前上限立即淘汰一次 |
 | GET | `/api/backup/export` | 导出阅读数据（进度/分章/收藏/设置 → JSON） |
 | POST | `/api/backup/import` | 合并导入阅读数据（只接受本机已有漫画） |
-| GET | `/api/about` | 运行信息（版本/构建时间/Node/平台/路径/数据库大小），设置页「关于」用 |
+| GET | `/api/about` | 运行信息（版本 / 构建时间 / Go 版本 / 平台 / 端口 / 运行时长 / 路径 / 数据库大小），设置页「关于」用 |
 | GET | `/api/health` | 存活检查（含 `name`/`version`，可用于确认 NAS 上跑的是哪个版本） |
 | GET | `/api/auth/status` | **公开**：登录是否启用 / 当前是否已登录（登录页与守卫用） |
 | POST | `/api/auth/login` | 登录（用户名+密码 → HttpOnly 会话 Cookie） |
@@ -455,7 +467,7 @@ NAS 上常见的 `http://192.168.x.x` 拿不到 SW 能力（浏览器平台限�
   - 轨道槽位按**页号**做 key，翻页时图片节点被复用 → 不会重建、不会重新淡入（否则滑出中的旧页会半透明）
 - **章末续翻自动进入下一章**；章首往前翻回到上一章最后一页（均带轻提示）
 - **整部漫画的首/末页再往外翻**：显示「已经是第一页了 / 已经是最后一页了」并让画面朝翻页方向回弹（橡皮筋效果）
-- **章节目录四格**：**详情页**章节区右上角可切「列表 / 一行四格」（方形格子、当前章高亮、已读打勾、在读用底部细条），
+- **章节目录四格**：**详情页**章节区右上角可切「列表 / 一行四格」（方形格子、当前章高亮、在读用底部细条），
   点格子直接进那一章；选择记在本机（`fakenews:detailChapterView`）。阅读器内的章节抽屉同样支持列表/四格（`fakenews:chapterView`）
 - **画质三档**：流畅（720 宽）/ 标准（1080 宽）/ 原图（原字节 Range）；前两档走缩略图缓存，原图支持断点续传
 - **双指缩放**（可开关，默认关闭）：两指 1–4 倍缩放、锚点跟随手势；放大后单指拖动查看，单击只显隐工具栏，换页自动复位

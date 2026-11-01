@@ -566,7 +566,7 @@ export default function SettingsPage() {
                   v{about?.version ?? '—'}
                 </span>
               </p>
-              <p className="text-[11px] text-ink-500">飞牛 NAS 漫画阅读器 · fnOS fpk 应用 for brep</p>
+              <p className="text-[11px] text-ink-500">飞牛 NAS 漫画阅读器 · fnOS fpk 应用</p>
             </div>
           </div>
           {/* 后端是 Go（历史遗留字段名 node 里装的是 runtime.Version()，即 go1.x.y），
